@@ -1,4 +1,5 @@
 #include "bstream.hpp"
+#include "bit_ops.h"
 #include <math.h>
 
 stoch::Bstream::Bstream(std::size_t length) {
@@ -16,9 +17,7 @@ uint8_t stoch::Bstream::get_bit(std::size_t index) const {
     std::size_t byte_index = index / 8;
     uint8_t bit_loc = index % 8;
 
-    uint8_t byte = bytes[byte_index];
-    uint8_t bit = (byte >> bit_loc) & 1;
-    return bit;   // Shift and mask to find the correct value
+    return GET_BIT(bytes[byte_index], bit_loc);
 }
 
 void stoch::Bstream::set_bit(std::size_t index) {
@@ -26,7 +25,7 @@ void stoch::Bstream::set_bit(std::size_t index) {
     std::size_t byte_index = index / 8;
     uint8_t bit_loc = index % 8;
 
-    bytes[byte_index] |= (1<<bit_loc);
+    SET_BIT(bytes[byte_index], bit_loc);
 }
 
 void stoch::Bstream::reset_bit(std::size_t index) {
@@ -34,7 +33,7 @@ void stoch::Bstream::reset_bit(std::size_t index) {
     std::size_t byte_index = index / 8;
     uint8_t bit_loc = index % 8;
 
-    bytes[byte_index] &= ~(1<<bit_loc);
+    RESET_BIT(bytes[byte_index], bit_loc);
 }
 
 void stoch::Bstream::toggle_bit(std::size_t index) {
@@ -42,7 +41,7 @@ void stoch::Bstream::toggle_bit(std::size_t index) {
     std::size_t byte_index = index / 8;
     uint8_t bit_loc = index % 8;
 
-    bytes[byte_index] ^= (1<<bit_loc);
+    TOGGLE_BIT(bytes[byte_index], bit_loc);
 }
 
 namespace stoch {
@@ -51,7 +50,7 @@ namespace stoch {
         std::size_t num_bits = obj.get_length();
         for (std::size_t bit_loc = 0; bit_loc < num_bits; ++bit_loc)
         {
-            // Cast to int to print 0,1 not usigned char
+            // Cast to int to print 0,1 not unsigned char
             os << (int)obj.get_bit(num_bits-bit_loc-1);
         }
 

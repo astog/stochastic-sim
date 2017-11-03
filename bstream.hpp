@@ -7,20 +7,21 @@
 
 namespace stoch {
     class Bstream {
-        private:
-            uint8_t* bytes;
-            std::size_t stream_length;
-        public:
-            Bstream(std::size_t length);
-            ~Bstream();
+    private:
+        uint8_t* bytes;
+        std::size_t stream_length;
 
-            uint8_t get_bit(std::size_t index) const;
-            void set_bit(std::size_t index);
-            void reset_bit(std::size_t index);
-            void toggle_bit(std::size_t index);
-            std::size_t get_length() const {return stream_length;};
+    public:
+        Bstream(std::size_t length);
+        ~Bstream();
 
-            friend std::ostream& operator<<(std::ostream& os, const Bstream& obj);
+        uint8_t get_bit(std::size_t index) const;
+        void set_bit(std::size_t index);
+        void reset_bit(std::size_t index);
+        void toggle_bit(std::size_t index);
+        std::size_t get_length() const {return stream_length;};
+
+        friend std::ostream& operator<<(std::ostream& os, const Bstream& obj);
     };
 }
 
