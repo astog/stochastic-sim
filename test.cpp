@@ -3,20 +3,13 @@
 
 int main(int argc, char const *argv[])
 {
-    stoch::Bstream b1 = stoch::Bstream(65);
-    std::cout << b1 << std::endl;
+    stoch::Bstream b2 = stoch::Bstream(256, 128, 28);
+    std::cout << b2 << std::endl;
+    std::cout << b2.get_accum_count() << std::endl;
 
-    b1.set_bit(0);
-    b1.set_bit(1);
-    b1.set_bit(2);
-    b1.set_bit(3);
-    b1.set_bit(5);
+    stoch::Bstream b3 = stoch::Bstream(256, 128, 9, false);
+    std::cout << b3 << std::endl;
+    std::cout << b3.get_accum_count() << std::endl;
 
-    b1.toggle_bit(0);
-    b1.reset_bit(2);
-
-    b1.set_bit(64);
-
-    std::cout << b1 << std::endl;
     return 0;
 }
