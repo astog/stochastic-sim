@@ -3,7 +3,6 @@
 #include <time.h>
 
 stoch::Stochn::Stochn(uint8_t num, bool randomize) {
-    srand(time(0));
     std::size_t length = 256;
     uint8_t seed;
     if (randomize) {
