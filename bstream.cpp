@@ -2,7 +2,7 @@
 #include "bit_ops.h"
 #include "lfsr.hpp"
 #include <math.h>
-#include <stdio.h>
+// #include <stdio.h>
 
 stoch::Bstream::Bstream(std::size_t length) {
     std::size_t num_bytes = ceil(length/8.0);
@@ -19,7 +19,6 @@ stoch::Bstream::Bstream(std::size_t length, uint8_t num, uint8_t seed, bool rect
     stoch::Lfsr lfsr = stoch::Lfsr(seed);
     // Start with the complemented value, ie consider rectified if we are not rectifying
     bool has_rectified = !rectify;
-    printf("Rectifying == %d\n", !has_rectified);
 
     // Goto each and set it based on the seed, and number
     for(std::size_t bit_loc = 0; bit_loc < stream_length; ++bit_loc) {
@@ -44,7 +43,7 @@ uint8_t stoch::Bstream::get_bit(std::size_t index) const {
     return GET_BIT(bytes[byte_index], bit_loc);
 }
 
-std::size_t stoch::Bstream::get_accum_count() const {
+std::size_t stoch::Bstream::get_bits_set_count() const {
     std::size_t count = 0;
 
     // Create lookup table (static since this is constant throughout operation)
@@ -92,8 +91,7 @@ namespace stoch {
     std::ostream& operator<<(std::ostream& os, const stoch::Bstream& obj) {
         // Go in reverse order so that MSB is on the left, LSB on the right
         std::size_t num_bits = obj.get_length();
-        for (std::size_t bit_loc = 0; bit_loc < num_bits; ++bit_loc)
-        {
+        for (std::size_t bit_loc = 0; bit_loc < num_bits; ++bit_loc) {
             // Cast to int to print 0,1 not unsigned char
             os << (int)obj.get_bit(num_bits-bit_loc-1);
         }
