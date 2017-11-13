@@ -12,12 +12,15 @@ namespace stoch {
         std::size_t stream_length;
 
     public:
-        /* Constructor and Deconstructors */
+        /* Constructors */
+        Bstream() : bytes(NULL), stream_length(0) {};
         Bstream(std::size_t length);
-        Bstream(std::size_t length, uint8_t num, uint8_t seed, bool rectify=true);
+        /* Copy Constructor */
+        Bstream(const Bstream&);
+        /* Deconstructor */
         ~Bstream();
 
-        /* Mutators */
+        /* Accessors and Mutators */
         uint8_t get_bit(std::size_t index) const;
         std::size_t get_bits_set_count() const;
         void set_bit(std::size_t index);
@@ -25,7 +28,7 @@ namespace stoch {
         void toggle_bit(std::size_t index);
         std::size_t get_length() const {return stream_length;};
 
-        /* Overloaded Operators */
+        /* Write to stream overloaded operator */
         friend std::ostream& operator<<(std::ostream& os, const Bstream& obj);
     };
 }

@@ -8,26 +8,26 @@ stoch::Bstream::Bstream(std::size_t length) {
     std::size_t num_bytes = ceil(length/8.0);
     bytes = new uint8_t[num_bytes];
     stream_length = length;
+
+    // Zero each byte
+    for (std::size_t byte_loc = 0; byte_loc < num_bytes; byte_loc++) {
+        bytes[byte_loc] = 0;
+    }
 }
 
-stoch::Bstream::Bstream(std::size_t length, uint8_t num, uint8_t seed, bool rectify) {
-    // Create a stream like normal
-    std::size_t num_bytes = ceil(length/8.0);
+stoch::Bstream::Bstream(const Bstream& bstream) {
+    // Delete any previous bytes
+    if (bytes != NULL)
+        delete[] bytes;
+
+    // Create stream with same length
+    std::size_t num_bytes = ceil(bstream.stream_length/8.0);
     bytes = new uint8_t[num_bytes];
-    stream_length = length;
+    stream_length = bstream.stream_length;
 
-    stoch::Lfsr lfsr = stoch::Lfsr(seed);
-    // Start with the complemented value, ie consider rectified if we are not rectifying
-    bool has_rectified = !rectify;
-
-    // Goto each and set it based on the seed, and number
-    for(std::size_t bit_loc = 0; bit_loc < stream_length; ++bit_loc) {
-        if (lfsr.rand() <= num) {
-            if (!has_rectified && seed <= num)
-                has_rectified = true;
-            else
-                set_bit(bit_loc);
-        }
+    // Copy each byte
+    for (std::size_t byte_loc = 0; byte_loc < num_bytes; byte_loc++) {
+        bytes[byte_loc] = bstream.bytes[byte_loc];
     }
 }
 

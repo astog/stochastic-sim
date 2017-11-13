@@ -12,8 +12,8 @@ namespace stoch {
         Bstream& get_bstream() const {return *bstream;};
     public:
         /* Constructor and Deconstructors */
-        Stochn(uint8_t num, bool randomize=true);
-        Stochn(int8_t num, bool randomize=true);
+        Stochn(uint8_t num, bool randomize=true, bool rectify=true);
+        Stochn(int8_t num, bool randomize=true, bool rectify=true);
         ~Stochn();
 
         /* Overloaded Operators */
