@@ -5,39 +5,21 @@
 #include <stdio.h>
 
 stoch::Stochn::Stochn(uint8_t num, bool randomize, bool rectify) {
-    std::size_t length = 256;
     uint8_t seed;
     if (randomize) {
-        seed = rand() % length;
+        seed = rand() % bstream_length;
     } else {
         seed = 1;
     }
 
     polar = false;
-    bstream = new Bstream(length);
-
-    // Start with the complemented value, ie consider rectified if we are not rectifying
-    bool has_rectified = !rectify;
-
-    stoch::Lfsr lfsr = stoch::Lfsr(seed);
-    std::size_t stream_length = bstream -> get_length();
-
-    // Goto each bit and set it based on the seed, and number
-    for(std::size_t bit_loc = 0; bit_loc < stream_length; ++bit_loc) {
-        if (lfsr.rand() <= num) {
-            if (!has_rectified && seed <= num)
-                has_rectified = true;
-            else
-                bstream -> set_bit(bit_loc);
-        }
-    }
+    init_bstream(num, seed, rectify);
 }
 
 stoch::Stochn::Stochn(int8_t num, bool randomize, bool rectify) {
-    std::size_t length = 256;
     uint8_t seed;
     if (randomize) {
-        seed = rand() % length;
+        seed = rand() % bstream_length;
     } else {
         seed = 1;
     }
@@ -51,7 +33,30 @@ stoch::Stochn::Stochn(int8_t num, bool randomize, bool rectify) {
     uint8_t polar_num = num >= 0 ? num : -num;
     polar_num += 128;
 
-    bstream = new Bstream(length);
+    init_bstream(polar_num, seed, rectify);
+}
+
+stoch::Stochn::Stochn(const Stochn& snum) {
+    if (bstream != NULL)
+        delete bstream;
+
+    // Create a new bstream, and copy to it
+    bstream = new Bstream();
+    *bstream = *snum.bstream;
+}
+
+stoch::Stochn::~Stochn() {
+    delete bstream;
+}
+
+void stoch::Stochn::init_bstream(uint8_t num, uint8_t seed, bool rectify) {
+    if (bstream != NULL) {
+        bstream = new Bstream(bstream_length);
+    } else {
+        delete bstream;
+        bstream = new Bstream(bstream_length);
+    }
+
     // Start with the complemented value, ie consider rectified if we are not rectifying
     bool has_rectified = !rectify;
 
@@ -60,17 +65,13 @@ stoch::Stochn::Stochn(int8_t num, bool randomize, bool rectify) {
 
     // Goto each bit and set it based on the seed, and number
     for(std::size_t bit_loc = 0; bit_loc < stream_length; ++bit_loc) {
-        if (lfsr.rand() <= polar_num) {
-            if (!has_rectified && seed <= polar_num)
-                has_rectified = true;
+        if (lfsr.rand() <= num) {
+            if (!has_rectified && seed <= num)
+                has_rectified = true;   // You only have to rectify one bit
             else
                 bstream -> set_bit(bit_loc);
         }
     }
-}
-
-stoch::Stochn::~Stochn() {
-    delete bstream;
 }
 
 namespace stoch {

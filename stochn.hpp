@@ -10,13 +10,22 @@ namespace stoch {
 
         // Private to prevent direct access to bstream
         Bstream& get_bstream() const {return *bstream;};
+
+        void init_bstream(uint8_t num, uint8_t seed, bool rectify);
     public:
-        /* Constructor and Deconstructors */
+        /* Constructors */
+        Stochn() : bstream(NULL), polar(false) {};
         Stochn(uint8_t num, bool randomize=true, bool rectify=true);
         Stochn(int8_t num, bool randomize=true, bool rectify=true);
+        /* Copy constructor */
+        Stochn(const Stochn&);
+        /* Deconstructor */
         ~Stochn();
 
-        /* Overloaded Operators */
+        /* Static global Constants */
+        const static std::size_t bstream_length = 256;
+
+        /* Overloaded stream write operator */
         friend std::ostream& operator<<(std::ostream& os, const Stochn& obj);
 
         bool is_polar() const {return polar;};

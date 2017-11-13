@@ -88,7 +88,7 @@ void stoch::Bstream::toggle_bit(std::size_t index) {
 }
 
 namespace stoch {
-    std::ostream& operator<<(std::ostream& os, const stoch::Bstream& obj) {
+    std::ostream& operator<<(std::ostream& os, const Bstream& obj) {
         // Go in reverse order so that MSB is on the left, LSB on the right
         std::size_t num_bits = obj.get_length();
         for (std::size_t bit_loc = 0; bit_loc < num_bits; ++bit_loc) {
