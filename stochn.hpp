@@ -30,6 +30,9 @@ namespace stoch {
 
         Stochn operator*(const Stochn& other);
         Stochn operator+(const Stochn& other);
+        Stochn& operator=(const Stochn& other);
+
+        float to_float();
 
         /* Accessors and Mutators */
         bool is_polar() const {return polar;};

@@ -9,7 +9,7 @@ stoch::Stochn::Stochn(uint8_t num, bool randomize, bool rectify) {
     if (randomize) {
         seed = rand() % bstream_length;
     } else {
-        seed = 1;
+        seed = 28;
     }
 
     polar = false;
@@ -37,6 +37,8 @@ stoch::Stochn::Stochn(int8_t num, bool randomize, bool rectify) {
 }
 
 stoch::Stochn::Stochn(const Stochn& snum) {
+    // std::cout << "Copying " << &snum << " into " << this << "\n";
+
     // if (bstream != NULL)
     //     delete bstream;
 
@@ -45,7 +47,9 @@ stoch::Stochn::Stochn(const Stochn& snum) {
 }
 
 stoch::Stochn::~Stochn() {
-    delete bstream;
+    // std::cout << "Calling deconstructor on  " << this << "\n";
+    if (bstream != NULL)
+        delete bstream;
 }
 
 void stoch::Stochn::init_bstream(uint8_t num, uint8_t seed, bool rectify) {
@@ -74,6 +78,7 @@ void stoch::Stochn::init_bstream(uint8_t num, uint8_t seed, bool rectify) {
 }
 
 stoch::Stochn stoch::Stochn::operator*(const stoch::Stochn& other) {
+    // std::cout << "Calling operator: " << this << " * " << &other << "\n";
     // Checks for polarity, both should be the same
     bool lhs_polar = this -> is_polar();
     bool rhs_polar = other.is_polar();
@@ -106,12 +111,37 @@ stoch::Stochn stoch::Stochn::operator*(const stoch::Stochn& other) {
         }
 
         // std::cout << *result_bstream << std::endl;
+        // std::cout << "Returning " << &result << std::endl;
         return result;
     }
 }
 
 stoch::Stochn stoch::Stochn::operator+(const stoch::Stochn& other) {
 
+}
+
+stoch::Stochn& stoch::Stochn::operator=(const stoch::Stochn& other) {
+    // std::cout << "Calling operator: " << this << " = " << &other << "\n";
+    if (bstream != NULL)
+        delete bstream;
+
+    // Create a new bstream, and clone to it
+    bstream = other.bstream -> clone();
+    // std::cout << "Returning " << this << std::endl;
+    return *this;
+}
+
+float stoch::Stochn::to_float() {
+    int bits_set = bstream -> get_bits_set_count();
+    if (polar) {
+        int8_t val = 128 - bits_set;
+        if (val < 0)
+            return val / 127.0;
+        else
+            return val / 128.0;
+    } else {
+        return bits_set / 255.0;
+    }
 }
 
 // Operators
