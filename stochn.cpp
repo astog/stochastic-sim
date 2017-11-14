@@ -2,7 +2,7 @@
 #include "lfsr.hpp"
 #include <stdlib.h>
 #include <time.h>
-#include <stdio.h>
+#include <iostream>
 
 stoch::Stochn::Stochn(uint8_t num, bool randomize, bool rectify) {
     uint8_t seed;
@@ -37,12 +37,11 @@ stoch::Stochn::Stochn(int8_t num, bool randomize, bool rectify) {
 }
 
 stoch::Stochn::Stochn(const Stochn& snum) {
-    if (bstream != NULL)
-        delete bstream;
+    // if (bstream != NULL)
+    //     delete bstream;
 
-    // Create a new bstream, and copy to it
-    bstream = new Bstream();
-    *bstream = *snum.bstream;
+    // Create a new bstream, and clone to it
+    bstream = snum.bstream -> clone();
 }
 
 stoch::Stochn::~Stochn() {
@@ -74,9 +73,51 @@ void stoch::Stochn::init_bstream(uint8_t num, uint8_t seed, bool rectify) {
     }
 }
 
+stoch::Stochn stoch::Stochn::operator*(const stoch::Stochn& other) {
+    // Checks for polarity, both should be the same
+    bool lhs_polar = this -> is_polar();
+    bool rhs_polar = other.is_polar();
+    if (lhs_polar != rhs_polar) {
+        return stoch::Stochn((uint8_t)0); // return 0 stream
+    }
+
+    if (lhs_polar) {
+        stoch::Stochn result = stoch::Stochn((int8_t)0);
+
+        // TODO: Add multiplication for polar
+
+        return result;
+    } else {
+
+        stoch::Stochn result = stoch::Stochn((uint8_t)0);
+        Bstream* result_bstream = result.get_bstream();   // Bstream is passed by reference, so changes go back to original
+        Bstream* lhs_bstream = this -> get_bstream();
+        Bstream* rhs_bstream = other.get_bstream();
+
+        // std::cout << *lhs_bstream << std::endl;
+        // std::cout << *rhs_bstream << std::endl;
+
+        // Multiplication is basic ANDing LHS with RHS
+        std::size_t stream_length = result_bstream -> get_length();
+        for(std::size_t bit_loc = 0; bit_loc < stream_length; ++bit_loc) {
+            if (lhs_bstream -> get_bit(bit_loc) & rhs_bstream -> get_bit(bit_loc)) {
+                result_bstream -> set_bit(bit_loc);
+            }
+        }
+
+        // std::cout << *result_bstream << std::endl;
+        return result;
+    }
+}
+
+stoch::Stochn stoch::Stochn::operator+(const stoch::Stochn& other) {
+
+}
+
+// Operators
 namespace stoch {
     std::ostream& operator<<(std::ostream& os, const Stochn& obj) {
-        int bits_set = obj.get_bstream().get_bits_set_count();
+        int bits_set = obj.get_bstream() -> get_bits_set_count();
         if (obj.is_polar()) {
             // For polar, do the reverse of the offset during initialization
             return os << 128 - bits_set;

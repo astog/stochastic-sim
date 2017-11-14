@@ -13,5 +13,7 @@ int main() {
     stoch::Stochn s3 = stoch::Stochn((int8_t)-127); // Polar stochastic number
     std::cout << s3 << std::endl;
 
+    std::cout << (s1 * s2) << std::endl;
+
     return 0;
 }

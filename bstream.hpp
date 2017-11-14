@@ -30,6 +30,8 @@ namespace stoch {
 
         /* Write to stream overloaded operator */
         friend std::ostream& operator<<(std::ostream& os, const Bstream& obj);
+
+        Bstream* clone();
     };
 }
 

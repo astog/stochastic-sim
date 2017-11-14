@@ -99,3 +99,17 @@ namespace stoch {
         return os;
     }
 }
+
+stoch::Bstream* stoch::Bstream::clone() {
+    Bstream* cloned = new Bstream(stream_length);
+
+    // Copy each bit
+    std::size_t num_bits = stream_length;
+    for (std::size_t bit_loc = 0; bit_loc < num_bits; ++bit_loc) {
+        if (get_bit(bit_loc)) {
+            cloned -> set_bit(bit_loc);
+        }
+    }
+
+    return cloned;
+}
