@@ -4,6 +4,9 @@
 #include <time.h>
 #include <iostream>
 
+#define MUL_METHOD 3
+#define ADD_METHOD 1
+
 stoch::Stochn::Stochn(uint8_t num, bool randomize, bool rectify) {
     uint8_t seed;
     if (randomize) {
@@ -99,25 +102,110 @@ stoch::Stochn stoch::Stochn::operator*(const stoch::Stochn& other) {
         Bstream* lhs_bstream = this -> get_bstream();
         Bstream* rhs_bstream = other.get_bstream();
 
-        // std::cout << *lhs_bstream << std::endl;
-        // std::cout << *rhs_bstream << std::endl;
+        // std::cout << *lhs_bstream << std::endl << std::endl;
+        // std::cout << *rhs_bstream << std::endl << std::endl;
 
-        // Multiplication is basic ANDing LHS with RHS
-        std::size_t stream_length = result_bstream -> get_length();
-        for(std::size_t bit_loc = 0; bit_loc < stream_length; ++bit_loc) {
-            if (lhs_bstream -> get_bit(bit_loc) & rhs_bstream -> get_bit(bit_loc)) {
-                result_bstream -> set_bit(bit_loc);
+        #if (MUL_METHOD == 1)
+            // Multiplication is basic ANDing LHS with RHS
+            std::size_t stream_length = result_bstream -> get_length();
+            for(std::size_t bit_loc = 0; bit_loc < stream_length; ++bit_loc) {
+                if (lhs_bstream -> get_bit(bit_loc) & rhs_bstream -> get_bit(bit_loc)) {
+                    result_bstream -> set_bit(bit_loc);
+                }
             }
-        }
+        #elif (MUL_METHOD == 2)
+            // 3-bit multiplication method
+            std::size_t stream_length = result_bstream -> get_length();
+            uint8_t x0, x1, x2, y0, y1, y2;
+            for(int bit_loc = 0; bit_loc < stream_length; ++bit_loc) {
+                x0=0; x1=0; x2=0; y0=0; y1=0; y2=0;
+                if (bit_loc >= 2) {
+                    x0 = lhs_bstream -> get_bit(bit_loc-2);
+                    y0 = rhs_bstream -> get_bit(bit_loc-2);
+                }
 
-        // std::cout << *result_bstream << std::endl;
+                if (bit_loc >= 1) {
+                    x1 = lhs_bstream -> get_bit(bit_loc-1);
+                    y1 = rhs_bstream -> get_bit(bit_loc-1);
+                }
+
+                x2 = lhs_bstream -> get_bit(bit_loc);
+                y2 = rhs_bstream -> get_bit(bit_loc);
+
+                // Boolean equation
+                uint8_t part_a = (x0|x1|x2) & ((y0&y1) | (y1&y2) | (y0&y2));
+                uint8_t part_b = (y0|y1|y2) & ((x0&x1) | (x1&x2) | (x0&x2));
+
+                // std::cout << (int)x0 << (int)x1 << (int)x2 << std::endl;
+                // std::cout << (int)y0 << (int)y1 << (int)y2 << std::endl;
+                if (part_a | part_b) {
+                    result_bstream -> set_bit(bit_loc);
+                }
+                // std::cout << (int)result_bstream -> get_bit(bit_loc) << "\n\n";
+            }
+        #endif
+        // std::cout << "\n\n";
+
+        // std::cout << *result_bstream << std::endl << std::endl;
         // std::cout << "Returning " << &result << std::endl;
         return result;
     }
 }
 
 stoch::Stochn stoch::Stochn::operator+(const stoch::Stochn& other) {
+    // std::cout << "Calling operator: " << this << " * " << &other << "\n";
+    // Checks for polarity, both should be the same
+    bool lhs_polar = this -> is_polar();
+    bool rhs_polar = other.is_polar();
+    if (lhs_polar != rhs_polar) {
+        return stoch::Stochn((uint8_t)0); // return 0 stream
+    }
 
+    if (lhs_polar) {
+        stoch::Stochn result = stoch::Stochn((int8_t)0);
+
+        // TODO: Add multiplication for polar
+
+        return result;
+    } else {
+
+        stoch::Stochn result = stoch::Stochn((uint8_t)0);
+        #if (ADD_METHOD == 1)
+            stoch::Stochn mux_select = stoch::Stochn((uint8_t)128);
+
+            // Extract bstreams
+            Bstream* result_bstream = result.get_bstream();   // Bstream is passed by reference, so changes go back to original
+            Bstream* mux_select_bstream = mux_select.get_bstream();
+            Bstream* lhs_bstream = this -> get_bstream();
+            Bstream* rhs_bstream = other.get_bstream();
+
+            // std::cout << *lhs_bstream << std::endl;
+            // std::cout << *rhs_bstream << std::endl;
+            // std::cout << *mux_select_bstream << std::endl;
+
+            // Addition is muxing LHS RHS
+            std::size_t stream_length = result_bstream -> get_length();
+            for(std::size_t bit_loc = 0; bit_loc < stream_length; ++bit_loc) {
+                if (mux_select_bstream -> get_bit(bit_loc)) {
+                    if (rhs_bstream -> get_bit(bit_loc))
+                        result_bstream -> set_bit(bit_loc);
+                } else {
+                    if (lhs_bstream -> get_bit(bit_loc))
+                        result_bstream -> set_bit(bit_loc);
+                }
+            }
+
+            // std::cout << *result_bstream << std::endl;
+        #elif (ADD_METHOD == 2)
+            // Extract bstreams
+            Bstream* result_bstream = result.get_bstream();   // Bstream is passed by reference, so changes go back to original
+            Bstream* lhs_bstream = this -> get_bstream();
+            Bstream* rhs_bstream = other.get_bstream();
+        #endif
+
+        // std::cout << "Returning " << &result << std::endl;
+        return result;
+    }
 }
 
 stoch::Stochn& stoch::Stochn::operator=(const stoch::Stochn& other) {
