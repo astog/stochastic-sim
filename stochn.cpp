@@ -4,7 +4,7 @@
 #include <time.h>
 #include <iostream>
 
-#define MUL_METHOD 3
+#define MUL_METHOD 2
 #define ADD_METHOD 1
 
 stoch::Stochn::Stochn(uint8_t num, bool randomize, bool rectify) {
