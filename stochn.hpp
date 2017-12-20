@@ -30,6 +30,7 @@ namespace stoch {
 
         Stochn operator*(const Stochn& other);
         Stochn operator+(const Stochn& other);
+        Stochn operator>>(const int val);
         Stochn& operator=(const Stochn& other);
 
         float to_float();

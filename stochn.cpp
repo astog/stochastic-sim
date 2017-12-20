@@ -4,8 +4,10 @@
 #include <time.h>
 #include <iostream>
 
-#define MUL_METHOD 2
-#define ADD_METHOD 1
+#define MUL_METHOD 1
+#define ADD_METHOD 2
+
+#define ADD_METHOD_2_MAX_COUNT 3
 
 stoch::Stochn::Stochn(uint8_t num, bool randomize, bool rectify) {
     uint8_t seed;
@@ -113,36 +115,6 @@ stoch::Stochn stoch::Stochn::operator*(const stoch::Stochn& other) {
                     result_bstream -> set_bit(bit_loc);
                 }
             }
-        #elif (MUL_METHOD == 2)
-            // 3-bit multiplication method
-            std::size_t stream_length = result_bstream -> get_length();
-            uint8_t x0, x1, x2, y0, y1, y2;
-            for(int bit_loc = 0; bit_loc < stream_length; ++bit_loc) {
-                x0=0; x1=0; x2=0; y0=0; y1=0; y2=0;
-                if (bit_loc >= 2) {
-                    x0 = lhs_bstream -> get_bit(bit_loc-2);
-                    y0 = rhs_bstream -> get_bit(bit_loc-2);
-                }
-
-                if (bit_loc >= 1) {
-                    x1 = lhs_bstream -> get_bit(bit_loc-1);
-                    y1 = rhs_bstream -> get_bit(bit_loc-1);
-                }
-
-                x2 = lhs_bstream -> get_bit(bit_loc);
-                y2 = rhs_bstream -> get_bit(bit_loc);
-
-                // Boolean equation
-                uint8_t part_a = (x0|x1|x2) & ((y0&y1) | (y1&y2) | (y0&y2));
-                uint8_t part_b = (y0|y1|y2) & ((x0&x1) | (x1&x2) | (x0&x2));
-
-                // std::cout << (int)x0 << (int)x1 << (int)x2 << std::endl;
-                // std::cout << (int)y0 << (int)y1 << (int)y2 << std::endl;
-                if (part_a | part_b) {
-                    result_bstream -> set_bit(bit_loc);
-                }
-                // std::cout << (int)result_bstream -> get_bit(bit_loc) << "\n\n";
-            }
         #endif
         // std::cout << "\n\n";
 
@@ -201,11 +173,37 @@ stoch::Stochn stoch::Stochn::operator+(const stoch::Stochn& other) {
             Bstream* result_bstream = result.get_bstream();   // Bstream is passed by reference, so changes go back to original
             Bstream* lhs_bstream = this -> get_bstream();
             Bstream* rhs_bstream = other.get_bstream();
+
+            // Addition is keeping memory of AND, adding 1's to OR stream
+            uint8_t count = 0;
+            std::size_t stream_length = result_bstream -> get_length();
+            for(std::size_t bit_loc = 0; bit_loc < stream_length; ++bit_loc) {
+                if (lhs_bstream -> get_bit(bit_loc) | rhs_bstream -> get_bit(bit_loc)) {
+                    if (lhs_bstream -> get_bit(bit_loc) & rhs_bstream -> get_bit(bit_loc)) {
+                        if (count < ADD_METHOD_2_MAX_COUNT) {
+                            count ++;
+                        }
+                    }
+                    result_bstream -> set_bit(bit_loc);
+                } else {
+                    if (count > 0) {
+                        count--;
+                        result_bstream -> set_bit(bit_loc);
+                    }
+                }
+            }
         #endif
 
         // std::cout << "Returning " << &result << std::endl;
         return result;
     }
+}
+
+stoch::Stochn stoch::Stochn::operator>>(const int val) {
+    // Find the correct multipler
+    stoch::Stochn sn1 = stoch::Stochn(uint8_t((1.0/(1<<val))*255));
+    // std::cout << "Muliplying with " << sn1.to_float() << std::endl;
+    return (*this)*sn1;
 }
 
 stoch::Stochn& stoch::Stochn::operator=(const stoch::Stochn& other) {
