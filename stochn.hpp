@@ -30,10 +30,12 @@ namespace stoch {
 
         Stochn operator*(const Stochn& other);
         Stochn operator+(const Stochn& other);
+        Stochn operator-(const Stochn& other);
         Stochn operator>>(const int val);
         Stochn& operator=(const Stochn& other);
 
-        float to_float();
+        float to_float() const;
+        uint8_t to_count() const { return bstream -> get_bits_set_count();}
 
         /* Accessors and Mutators */
         bool is_polar() const {return polar;};

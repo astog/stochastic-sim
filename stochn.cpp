@@ -7,7 +7,7 @@
 #define MUL_METHOD 1
 #define ADD_METHOD 2
 
-#define ADD_METHOD_2_MAX_COUNT 3
+#define CARRY_MAX_COUNT 3
 
 stoch::Stochn::Stochn(uint8_t num, bool randomize, bool rectify) {
     uint8_t seed;
@@ -48,6 +48,7 @@ stoch::Stochn::Stochn(const Stochn& snum) {
     //     delete bstream;
 
     // Create a new bstream, and clone to it
+    polar = snum.polar;
     bstream = snum.bstream -> clone();
 }
 
@@ -175,24 +176,71 @@ stoch::Stochn stoch::Stochn::operator+(const stoch::Stochn& other) {
             Bstream* rhs_bstream = other.get_bstream();
 
             // Addition is keeping memory of AND, adding 1's to OR stream
-            uint8_t count = 0;
+            uint8_t carry_count = 0;
             std::size_t stream_length = result_bstream -> get_length();
             for(std::size_t bit_loc = 0; bit_loc < stream_length; ++bit_loc) {
                 if (lhs_bstream -> get_bit(bit_loc) | rhs_bstream -> get_bit(bit_loc)) {
                     if (lhs_bstream -> get_bit(bit_loc) & rhs_bstream -> get_bit(bit_loc)) {
-                        if (count < ADD_METHOD_2_MAX_COUNT) {
-                            count ++;
+                        if (carry_count < CARRY_MAX_COUNT) {
+                            carry_count ++;
                         }
                     }
                     result_bstream -> set_bit(bit_loc);
                 } else {
-                    if (count > 0) {
-                        count--;
+                    if (carry_count > 0) {
+                        carry_count--;
                         result_bstream -> set_bit(bit_loc);
                     }
                 }
             }
         #endif
+
+        // std::cout << "Returning " << &result << std::endl;
+        return result;
+    }
+}
+
+stoch::Stochn stoch::Stochn::operator-(const stoch::Stochn& other) {
+    // std::cout << "Calling operator: " << this << " * " << &other << "\n";
+    // Checks for polarity, both should be the same
+    bool lhs_polar = this -> is_polar();
+    bool rhs_polar = other.is_polar();
+    if (lhs_polar != rhs_polar) {
+        return stoch::Stochn((uint8_t)0); // return 0 stream
+    }
+
+    if (lhs_polar) {
+        stoch::Stochn result = stoch::Stochn((int8_t)0);
+
+        // TODO: Add multiplication for polar
+
+        return result;
+    } else {
+
+        stoch::Stochn result = stoch::Stochn((uint8_t)0);
+
+        // Extract bstreams
+        Bstream* result_bstream = result.get_bstream();   // Bstream is passed by reference, so changes go back to original
+        Bstream* lhs_bstream = this -> get_bstream();
+        Bstream* rhs_bstream = other.get_bstream();
+
+        // Subtraction is every 1 in rhs should not be in lhs
+        int carry_count = 0;
+        std::size_t stream_length = result_bstream -> get_length();
+        for(std::size_t bit_loc = 0; bit_loc < stream_length; ++bit_loc) {
+            // We set if rhs is 0 and lhs is 1
+            if (lhs_bstream->get_bit(bit_loc) & ~rhs_bstream->get_bit(bit_loc)) {
+                if (carry_count == 0)
+                    result_bstream -> set_bit(bit_loc);
+                else
+                    carry_count--;
+            } else if (~lhs_bstream->get_bit(bit_loc) & rhs_bstream->get_bit(bit_loc)) {
+                if (carry_count < CARRY_MAX_COUNT)
+                    carry_count++;
+            }
+        }
+
+        // std::cout << *result_bstream << std::endl;
 
         // std::cout << "Returning " << &result << std::endl;
         return result;
@@ -217,7 +265,7 @@ stoch::Stochn& stoch::Stochn::operator=(const stoch::Stochn& other) {
     return *this;
 }
 
-float stoch::Stochn::to_float() {
+float stoch::Stochn::to_float() const {
     int bits_set = bstream -> get_bits_set_count();
     if (polar) {
         int8_t val = 128 - bits_set;
@@ -233,7 +281,7 @@ float stoch::Stochn::to_float() {
 // Operators
 namespace stoch {
     std::ostream& operator<<(std::ostream& os, const Stochn& obj) {
-        int bits_set = obj.get_bstream() -> get_bits_set_count();
+        int bits_set = obj.to_count();
         if (obj.is_polar()) {
             // For polar, do the reverse of the offset during initialization
             return os << 128 - bits_set;
