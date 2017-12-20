@@ -3,42 +3,24 @@
 #include <stdlib.h>
 #include <time.h>
 #include <iostream>
+#include <stdio.h>
 
 #define MUL_METHOD 1
 #define ADD_METHOD 2
 
 #define CARRY_MAX_COUNT 3
 
-stoch::Stochn::Stochn(uint8_t num, bool randomize, bool rectify) {
+stoch::Stochn::Stochn(uint8_t num, std::size_t length, bool polar, bool randomize, bool rectify) {
     uint8_t seed;
+    bstream_length = length;
     if (randomize) {
-        seed = rand() % bstream_length;
+        seed = rand() % 256;
     } else {
         seed = 28;
     }
 
-    polar = false;
+    this->polar = polar;
     init_bstream(num, seed, rectify);
-}
-
-stoch::Stochn::Stochn(int8_t num, bool randomize, bool rectify) {
-    uint8_t seed;
-    if (randomize) {
-        seed = rand() % bstream_length;
-    } else {
-        seed = 1;
-    }
-
-    polar = true;
-
-    // For polar representation 0 => 128 1's and 128 0's
-    // All 1's => 128
-    // All 0's => -127
-    // So offset the abs of the number by +128
-    uint8_t polar_num = num >= 0 ? num : -num;
-    polar_num += 128;
-
-    init_bstream(polar_num, seed, rectify);
 }
 
 stoch::Stochn::Stochn(const Stochn& snum) {
@@ -49,6 +31,7 @@ stoch::Stochn::Stochn(const Stochn& snum) {
 
     // Create a new bstream, and clone to it
     polar = snum.polar;
+    bstream_length = snum.bstream_length;
     bstream = snum.bstream -> clone();
 }
 
@@ -89,18 +72,12 @@ stoch::Stochn stoch::Stochn::operator*(const stoch::Stochn& other) {
     bool lhs_polar = this -> is_polar();
     bool rhs_polar = other.is_polar();
     if (lhs_polar != rhs_polar) {
-        return stoch::Stochn((uint8_t)0); // return 0 stream
+        return stoch::Stochn((uint8_t)0, bstream_length); // return 0 stream
     }
 
     if (lhs_polar) {
-        stoch::Stochn result = stoch::Stochn((int8_t)0);
+        stoch::Stochn result = stoch::Stochn(0, bstream_length, true);
 
-        // TODO: Add multiplication for polar
-
-        return result;
-    } else {
-
-        stoch::Stochn result = stoch::Stochn((uint8_t)0);
         Bstream* result_bstream = result.get_bstream();   // Bstream is passed by reference, so changes go back to original
         Bstream* lhs_bstream = this -> get_bstream();
         Bstream* rhs_bstream = other.get_bstream();
@@ -109,7 +86,33 @@ stoch::Stochn stoch::Stochn::operator*(const stoch::Stochn& other) {
         // std::cout << *rhs_bstream << std::endl << std::endl;
 
         #if (MUL_METHOD == 1)
-            // Multiplication is basic ANDing LHS with RHS
+            // Multiplication is basic LHS XNOR RHS
+            std::size_t stream_length = result_bstream -> get_length();
+            for(std::size_t bit_loc = 0; bit_loc < stream_length; ++bit_loc) {
+                if (lhs_bstream->get_bit(bit_loc) == 0 & rhs_bstream->get_bit(bit_loc) == 0) {
+                    //printf("(%lu): %d %d\n", bit_loc, lhs_bstream->get_bit(bit_loc), rhs_bstream->get_bit(bit_loc));
+                    result_bstream -> set_bit(bit_loc);
+                } else if (lhs_bstream->get_bit(bit_loc) == 1 & rhs_bstream->get_bit(bit_loc) == 1) {
+                    // printf("(%lu): %d %d\n", bit_loc, lhs_bstream->get_bit(bit_loc), rhs_bstream->get_bit(bit_loc));
+                    result_bstream -> set_bit(bit_loc);
+                }
+            }
+        #endif
+
+        // std::cout << *result_bstream << std::endl << std::endl;
+        return result;
+    } else {
+
+        stoch::Stochn result = stoch::Stochn((uint8_t)0, bstream_length);
+        Bstream* result_bstream = result.get_bstream();   // Bstream is passed by reference, so changes go back to original
+        Bstream* lhs_bstream = this -> get_bstream();
+        Bstream* rhs_bstream = other.get_bstream();
+
+        // std::cout << *lhs_bstream << std::endl << std::endl;
+        // std::cout << *rhs_bstream << std::endl << std::endl;
+
+        #if (MUL_METHOD == 1)
+            // Multiplication is basic LHS AND RHS
             std::size_t stream_length = result_bstream -> get_length();
             for(std::size_t bit_loc = 0; bit_loc < stream_length; ++bit_loc) {
                 if (lhs_bstream -> get_bit(bit_loc) & rhs_bstream -> get_bit(bit_loc)) {
@@ -131,20 +134,17 @@ stoch::Stochn stoch::Stochn::operator+(const stoch::Stochn& other) {
     bool lhs_polar = this -> is_polar();
     bool rhs_polar = other.is_polar();
     if (lhs_polar != rhs_polar) {
-        return stoch::Stochn((uint8_t)0); // return 0 stream
+        return stoch::Stochn((uint8_t)0, bstream_length); // return 0 stream
     }
 
     if (lhs_polar) {
-        stoch::Stochn result = stoch::Stochn((int8_t)0);
+        stoch::Stochn result = stoch::Stochn((uint8_t)0, bstream_length, true);
 
-        // TODO: Add multiplication for polar
-
-        return result;
     } else {
 
-        stoch::Stochn result = stoch::Stochn((uint8_t)0);
+        stoch::Stochn result = stoch::Stochn((uint8_t)0, bstream_length);
         #if (ADD_METHOD == 1)
-            stoch::Stochn mux_select = stoch::Stochn((uint8_t)128);
+            stoch::Stochn mux_select = stoch::Stochn((uint8_t)127, bstream_length, true); // 0 in polar format
 
             // Extract bstreams
             Bstream* result_bstream = result.get_bstream();   // Bstream is passed by reference, so changes go back to original
@@ -206,18 +206,18 @@ stoch::Stochn stoch::Stochn::operator-(const stoch::Stochn& other) {
     bool lhs_polar = this -> is_polar();
     bool rhs_polar = other.is_polar();
     if (lhs_polar != rhs_polar) {
-        return stoch::Stochn((uint8_t)0); // return 0 stream
+        return stoch::Stochn((uint8_t)0, bstream_length); // return 0 stream
     }
 
     if (lhs_polar) {
-        stoch::Stochn result = stoch::Stochn((int8_t)0);
+        stoch::Stochn result = stoch::Stochn((int8_t)0, bstream_length, true);
 
         // TODO: Add multiplication for polar
 
         return result;
     } else {
 
-        stoch::Stochn result = stoch::Stochn((uint8_t)0);
+        stoch::Stochn result = stoch::Stochn((uint8_t)0, bstream_length);
 
         // Extract bstreams
         Bstream* result_bstream = result.get_bstream();   // Bstream is passed by reference, so changes go back to original
@@ -249,7 +249,7 @@ stoch::Stochn stoch::Stochn::operator-(const stoch::Stochn& other) {
 
 stoch::Stochn stoch::Stochn::operator>>(const int val) {
     // Find the correct multipler
-    stoch::Stochn sn1 = stoch::Stochn(uint8_t((1.0/(1<<val))*255));
+    stoch::Stochn sn1 = stoch::Stochn(uint8_t((1.0/(1<<val))*255), bstream_length);
     // std::cout << "Muliplying with " << sn1.to_float() << std::endl;
     return (*this)*sn1;
 }
@@ -268,13 +268,10 @@ stoch::Stochn& stoch::Stochn::operator=(const stoch::Stochn& other) {
 float stoch::Stochn::to_float() const {
     int bits_set = bstream -> get_bits_set_count();
     if (polar) {
-        int8_t val = 128 - bits_set;
-        if (val < 0)
-            return val / 127.0;
-        else
-            return val / 128.0;
+        int bits_nset = bstream_length-bits_set;
+        return ((float)(bits_set-bits_nset))/bstream_length;
     } else {
-        return bits_set / 255.0;
+        return bits_set / (bstream_length);
     }
 }
 
@@ -284,7 +281,7 @@ namespace stoch {
         int bits_set = obj.to_count();
         if (obj.is_polar()) {
             // For polar, do the reverse of the offset during initialization
-            return os << 128 - bits_set;
+            return os << bits_set - 127;
         } else {
             // Since not polar, number of bits is the same as the original number
             return os << bits_set;

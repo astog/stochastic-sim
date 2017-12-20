@@ -7,6 +7,7 @@ namespace stoch {
     private:
         Bstream* bstream;
         bool polar;  // Does this stream represent a -1/+1 value, instead of a 0/1?
+        std::size_t bstream_length;
 
         // Private to prevent direct access to bstream
         Bstream* get_bstream() const {return bstream;};
@@ -15,15 +16,11 @@ namespace stoch {
     public:
         /* Constructors */
         Stochn() : bstream(NULL), polar(false) {};
-        Stochn(uint8_t num, bool randomize=true, bool rectify=true);
-        Stochn(int8_t num, bool randomize=true, bool rectify=true);
+        Stochn(uint8_t num, std::size_t length=256, bool polar=false, bool randomize=true, bool rectify=true);
         /* Copy constructor */
         Stochn(const Stochn&);
         /* Deconstructor */
         ~Stochn();
-
-        /* Static global Constants */
-        const static std::size_t bstream_length = 256;
 
         /* Overloaded stream write operator */
         friend std::ostream& operator<<(std::ostream& os, const Stochn& obj);
