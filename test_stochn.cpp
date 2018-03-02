@@ -4,7 +4,7 @@
 #include <time.h>
 #include <math.h>
 
-#define TEST 5
+#define TEST 6
 
 float float_to_fixedp(float n) {
     return (round(n*255))/255.0;
@@ -79,6 +79,18 @@ int main() {
         // std::cout << (int)sn1.to_count() << ": " << sn1.to_float() << std::endl;
         // std::cout << (int)sn2.to_count() << ": " << sn2.to_float() << std::endl;
         std::cout << (sn1*sn2).to_float() << " " << sn1.to_float()*sn2.to_float() << std::endl;
+    }
+
+    #elif (TEST==6)
+
+    uint8_t vals[256];
+
+    for (int i = 1; i < 256*10; i++)
+    {
+        uint8_t x = rand%256;
+        stoch::Stochn sn1 = stoch::Stochn(x, 256);
+        float real_n = sn1.to_float();
+        uint8_t approx_x = real_n * 256
     }
 
     #endif

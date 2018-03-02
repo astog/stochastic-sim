@@ -84,10 +84,16 @@ def stoch_dot(input_matrix1, input_matrix2, bipolar, deterministic=False, mode=1
     # accumulate product
     for i in xrange(input_matrix1.shape[0]):
         pp = stoch_mul(input_matrix1[i], input_matrix2[i], bipolar)
-        # print("{} * {} = {} == {}".format(
+        # print("{}*{} = {} == {}".format(
         #     toRealN(input_matrix1[i], bipolar), toRealN(input_matrix2[i], bipolar),
-        #     toRealN(input_matrix1[i], bipolar) * toRealN(input_matrix2[i], bipolar), toRealN(pp, bipolar)), end='\n\n')
-        result = stoch_add(result, pp, bipolar, mode)
+        #     toRealN(input_matrix1[i], bipolar) * toRealN(input_matrix2[i], bipolar),
+        #     toRealN(pp, bipolar)), end='\n\n')
+        print(pp)
+        print(result)
+        # print("{} + {} == ".format(toRealN(result, bipolar), toRealN(pp, bipolar)), end='\n')
+        # result = stoch_add(result, pp, bipolar, mode)
+        print(result, end='\n\n')
+        # print(toRealN(result, bipolar))
 
     result = result.astype(np.uint8)
     return result
@@ -118,14 +124,43 @@ def stoch_cube_mm(stoch_cube1, stoch_cube2, bipolar=True, deterministic=False, m
     return final_cube
 
 
+def round_to_fixed_point(vals, bits, bipolar):
+    bin_max = None
+    bin_min = None
+    bin_count = 2**bits - 1
+    if bipolar:
+        bin_max = (bin_count / 2)
+        bin_min = -(bin_count / 2)
+        bin_count = bin_max
+    else:
+        bin_max = bin_count
+        bin_min = bin_min
+
+    binary_val = np.round(vals * bin_count)
+    return binary_val / bin_count
+
+
 if __name__ == '__main__':
-    xv = 2 * np.random.rand(5) - 1
-    yv = 2 * np.random.rand(5) - 1
-    xm = stochify_vector(xv, 128, False, False)
-    ym = stochify_vector(yv, 128, False, False)
-    print(xm)
-    print(ym)
+
+    bipolar = True
+    deterministic = True
+
+    xv = 2 * np.random.rand(20) - 1
+    yv = 2 * np.random.rand(20) - 1
     print("\n=========================\n")
-    ap_xyd = toRealN(stoch_dot(xm, ym, False), False)
+    print(xv)
+    print(yv)
+    # xv = round_to_fixed_point(xv, 8, bipolar)
+    # yv = round_to_fixed_point(yv, 8, bipolar)
+    # print("\n=========================\n")
+    # print(xv)
+    # print(yv)
+    xm = stochify_vector(xv, 8, bipolar, deterministic)
+    ym = stochify_vector(yv, 8, bipolar, deterministic)
+    print("\n=========================\n")
+    print(binarize_matrix_to_vector(xm, bipolar))
+    print(binarize_matrix_to_vector(ym, bipolar))
+    print("\n=========================\n")
+    ap_xyd = toRealN(stoch_dot(xm, ym, bipolar), deterministic)
     print(ap_xyd)
     print(np.dot(xv, yv))
