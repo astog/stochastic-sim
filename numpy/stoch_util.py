@@ -21,7 +21,7 @@ def toStochS(real_n, length, bipolar=True, deterministic=False, shuffle=False):
         else:
             n1 = real_n * length
 
-        n1 = np.ceil(n1).astype(int)
+        n1 = np.round(n1).astype(int)
         n0 = length - n1
 
         # Minor optimization, set the least required bits
@@ -62,3 +62,20 @@ def toRealN(stoch_s, bipolar=True):
         return (n1 - n0) / n
     else:
         return n1 / n
+
+
+def stoch_mul(stoch_s1, stoch_s2, bipolar):
+    if bipolar:
+        return np.logical_not(np.logical_xor(stoch_s1, stoch_s2)).astype(np.uint8)
+    else:
+        return np.logical_and(stoch_s1, stoch_s2).astype(np.uint8)
+
+
+def stoch_add(stoch_s1, stoch_s2, bipolar=True, mode=1):
+    if mode == 0:
+        select_s = toStochS(0.5, stoch_s1.size, bipolar=True, deterministic=True, shuffle=True)
+        return np.logical_or(np.logical_and(stoch_s1, select_s), np.logical_and(stoch_s2, np.logical_not(select_s))).astype(np.uint8)
+    elif mode == 1:
+        return toStochS(toRealN(stoch_s1, bipolar) + toRealN(stoch_s2, bipolar), stoch_s1.size, bipolar, True, True)
+    elif mode == 2:
+        return np.logical_or(stoch_s1, stoch_s2).astype(np.uint8)
