@@ -1,6 +1,6 @@
 from progressbar import printProgressBar
 import matplotlib.pyplot as plt
-from stoch_nn import *
+import stoch_util as su
 import numpy as np
 import argparse
 import os
@@ -57,9 +57,9 @@ if not file_loaded:
             else:
                 xyd = np.clip(xyd, 0, 1)
 
-            xm = stochify_vector(xv, length, args.bipolar, args.deterministic)
-            ym = stochify_vector(yv, length, args.bipolar, args.deterministic)
-            ap_xyd = toRealN(stoch_dot(xm, ym, args.bipolar, args.deterministic, 1), args.deterministic)
+            xm = su.stochify_vector(xv, length, args.bipolar, args.deterministic)
+            ym = su.stochify_vector(yv, length, args.bipolar, args.deterministic)
+            ap_xyd = su.toRealN(su.stoch_dot(xm, ym, args.bipolar, args.deterministic, 1), args.deterministic)
             vals[j] = xyd - ap_xyd
 
         stats[i] = (np.average(vals), np.std(vals))
