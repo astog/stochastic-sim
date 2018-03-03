@@ -93,11 +93,31 @@ def stochify_vector(input_vec, length, bipolar, deterministic):
     deterministic   Optional:   Whether to use deterministic generation
     '''
 
-    assert(input_vec.shape == (input_vec.size,))
+    size = input_vec.size
+    assert(input_vec.shape == (size,))
 
-    stoch_matrix = np.ndarray((input_vec.size, length), dtype=np.uint8)
-    for i, real_n in np.ndenumerate(input_vec):
-        stoch_matrix[i] = to_stoch(real_n, length, bipolar, deterministic)
+    stoch_matrix = np.zeros((size, length), dtype=np.uint8)
+    if deterministic:
+        # Generate number of 1's we want per vector
+        num_ones = None
+        if bipolar:
+            num_ones = (input_vec + 1) * (length / 2)
+        else:
+            num_ones = input_vec * length
+
+        num_ones = np.round(num_ones).astype(np.uint16).reshape(size, 1)
+        col_indices = np.tile(np.arange(length).reshape(1, length), (size, 1))
+        stoch_matrix[col_indices < num_ones] = 1
+
+        # shuffle across rows, ie bitstream
+        np.apply_along_axis(np.random.shuffle, 1, stoch_matrix)
+    else:
+        # Generate probabilites for 1's in each bit
+        probs = np.random.rand(size, length)
+        if bipolar:
+            probs = (2 * probs) - 1
+
+        stoch_matrix[probs < input_vec.reshape(size, 1)] = 1
 
     return stoch_matrix
 
