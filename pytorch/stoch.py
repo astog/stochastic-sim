@@ -86,10 +86,10 @@ def multiply(stoch_tensor1, stoch_tensor2, bipolar=True):
         return stoch_tensor1 & stoch_tensor2
 
 
-def accum(stoch_tensor, bipolar=True, mode='deter'):
+def sum(stoch_vector, bipolar=True, mode='deter'):
     '''
     params:
-    stoch_tensor1   Vector of stochastic streams
+    stoch_vector    Vector of stochastic streams
     bipolar         Set to true if tensor 1, 2 are b/w [1, 1]
     mode            Mode to do addition: deter, stoch
 
@@ -97,10 +97,10 @@ def accum(stoch_tensor, bipolar=True, mode='deter'):
     Stochastic stream of the sum
     '''
 
-    length = stoch_tensor.shape[-1]
+    length = stoch_vector.shape[-1]
 
     if mode == 'deter':
-        accum_sum = to_real(stoch_tensor, bipolar).sum(dim=0)
+        accum_sum = to_real(stoch_vector, bipolar).sum(dim=0)
         if bipolar:
             accum_sum.clamp_(-1, 1)
         else:
@@ -109,14 +109,14 @@ def accum(stoch_tensor, bipolar=True, mode='deter'):
 
     elif mode == 'stoch':
         # TODO: Implement this
-        return accum(stoch_tensor, bipolar)
+        return sum(stoch_vector, bipolar)
 
 
-def dot(stoch_tensor1, stoch_tensor2, bipolar=True):
+def dot(stoch_vector1, stoch_vector2, bipolar=True):
     '''
     params:
-    stoch_tensor1   Vector of stochastic streams
-    stoch_tensor1   Vector of stochastic streams. Same size as stoch_tensor1
+    stoch_vector1   Vector of stochastic streams
+    stoch_vector2   Vector of stochastic streams. Same size as stoch_vector1
     bipolar         Set to true if tensor 1, 2 are b/w [1, 1]
 
     returns:
@@ -124,11 +124,10 @@ def dot(stoch_tensor1, stoch_tensor2, bipolar=True):
     '''
 
     # Make sure it is a vector of stochastic streams
-    assert(len(stoch_tensor1.shape) == 2)
-    assert(len(stoch_tensor2.shape) == 2)
+    assert(len(stoch_vector1.shape) == 2)
+    assert(len(stoch_vector2.shape) == 2)
 
-    mul_result = multiply(stoch_tensor1, stoch_tensor2, bipolar)
-    return accum(mul_result, bipolar)
+    return sum(multiply(stoch_vector1, stoch_vector2, bipolar), bipolar)
 
 
 if __name__ == '__main__':
