@@ -1,13 +1,18 @@
 from __future__ import print_function
 import torch
 
+import numpy as np
+from scipy.stats import norm
+import matplotlib.mlab as mlab
+import matplotlib.pyplot as plt
+
 
 def quantize(tensor, nbits=8):
     # one bit is needed for the sign
     return tensor.mul(2**(nbits - 1)).round().div(2**(nbits - 1))
 
 
-def to_stoch(float_tensor, length, bipolar=True, deterministic=True):
+def to_stoch(float_tensor, length, bipolar=True, deterministic=False):
     '''
     params:
     float_tensor    Tensor between [0,1] or [-1,1] based on setting of bipolar
@@ -84,7 +89,7 @@ def multiply(stoch_tensor1, stoch_tensor2, bipolar=True):
         return stoch_tensor1 & stoch_tensor2
 
 
-def sum(stoch_vector, bipolar=True, mode='deter'):
+def sum(stoch_vector, bipolar=True, deterministic=False, mode='deter'):
     '''
     params:
     stoch_vector    Vector of stochastic streams
@@ -92,7 +97,7 @@ def sum(stoch_vector, bipolar=True, mode='deter'):
     mode            Mode to do addition: deter, stoch
 
     returns:
-    Stochastic stream of the sum
+    Stochastic sum of the streams in stoch_vector
     '''
 
     length = stoch_vector.shape[-1]
@@ -103,19 +108,20 @@ def sum(stoch_vector, bipolar=True, mode='deter'):
             accum_sum.clamp_(-1, 1)
         else:
             accum_sum.clamp_(0, 1)
-        return to_stoch(accum_sum, length, bipolar)
+        return to_stoch(accum_sum, length, bipolar=bipolar, deterministic=deterministic)
 
     elif mode == 'stoch':
         # TODO: Implement this
-        return sum(stoch_vector, bipolar)
+        return sum(stoch_vector, bipolar=bipolar, deterministic=deterministic)
 
 
-def dot(stoch_vector1, stoch_vector2, bipolar=True):
+def dot(stoch_vector1, stoch_vector2, bipolar=True, output_stoch=True):
     '''
     params:
     stoch_vector1   Vector of stochastic streams
     stoch_vector2   Vector of stochastic streams. Same size as stoch_vector1
     bipolar         Set to true if tensor 1, 2 are b/w [1, 1]
+    output_stoch    Whether the output should be a stochastic stream or a non-clipped real number
 
     returns:
     Stochastic stream of the dot product result
@@ -125,15 +131,20 @@ def dot(stoch_vector1, stoch_vector2, bipolar=True):
     assert(len(stoch_vector1.shape) == 2)
     assert(len(stoch_vector2.shape) == 2)
 
-    return sum(multiply(stoch_vector1, stoch_vector2, bipolar), bipolar)
+    mul_result = multiply(stoch_vector1, stoch_vector2, bipolar)
+    if output_stoch:
+        return sum(mul_result, bipolar)
+    else:
+        return to_real(mul_result).sum()
 
 
-def mm(stoch_matrix1, stoch_matrix2, bipolar=True):
+def mm(stoch_matrix1, stoch_matrix2, bipolar=True, deterministic=False, output_stoch=True):
     '''
     params:
     stoch_matrix1   Matrix of stochastic streams
     stoch_matrix2   Matrix of stochastic streams. Same size as stoch_vector1
     bipolar         Set to true if tensor 1, 2 are b/w [1, 1]
+    output_stoch    Whether the output should be a stochastic stream or a non-clipped real number
 
     returns:
     Returns the stochastic equivalent to matrix multiplication
@@ -151,21 +162,30 @@ def mm(stoch_matrix1, stoch_matrix2, bipolar=True):
 
     m1 = stoch_matrix1.view(stoch_matrix1.shape[0], stoch_matrix1.shape[1], 1, length)
     m2 = stoch_matrix2.view(1, stoch_matrix2.shape[0], stoch_matrix2.shape[1], length)
-    dot_sum = torch.sum(to_real(multiply(m1, m2), bipolar), dim=1)
-    return to_stoch(dot_sum, length, bipolar)
+    dot_sum = torch.sum(to_real(multiply(m1, m2, bipolar), bipolar), dim=1)
+
+    if output_stoch:
+        return to_stoch(dot_sum, length, bipolar=bipolar, deterministic=deterministic)
+    else:
+        return dot_sum
 
 
 if __name__ == '__main__':
-    deterministic = True
+    deterministic = False
     bipolar = True
     nbits = 8
-    length = 16
+    length = 32
 
-    x = torch.rand(5, 5)
-    y = torch.rand(5, 5)
+    size = 4096
+
+    x = None
+    y = None
     if bipolar:
-        x = 2 * x - 1
-        y = 2 * y - 1
+        x = torch.FloatTensor(1, size).normal_(0.0, 0.25).clamp_(-1, 1)
+        y = torch.FloatTensor(size, size).normal_(0.0, 0.25).clamp_(-1, 1)
+    else:
+        x = torch.FloatTensor(1, size).normal_(0.5, 0.125).clamp_(0, 1)
+        y = torch.FloatTensor(size, size).normal_(0.5, 0.125).clamp_(0, 1)
 
     x = quantize(x, nbits)
     y = quantize(y, nbits)
@@ -180,6 +200,26 @@ if __name__ == '__main__':
     print("Ideal ====== ")
     print(torch.mm(x, y), end='\n\n')
     print("Stoch Ideal ------")
-    print(torch.mm(to_real(apx, bipolar), to_real(apy, bipolar)).clamp_(-1 if bipolar else 0, 1), end='\n\n')
+    ideal_sol = torch.mm(to_real(apx, bipolar), to_real(apy, bipolar))
+    print(ideal_sol, end='\n\n')
     print("Stoch Actual ~~~~~")
-    print(to_real(mm(apx, apy, bipolar), bipolar), end='\n\n')
+    got_sol = mm(apx, apy, bipolar, output_stoch=False)
+    print(got_sol, end='\n\n')
+    datos = np.reshape((ideal_sol - got_sol).numpy(), size)
+    # best fit of data
+    (mu, sigma) = norm.fit(datos)
+
+    # the histogram of the data
+    n, bins, patches = plt.hist(datos, 60, normed=1, facecolor='green', alpha=0.75)
+
+    # add a 'best fit' line
+    y = mlab.normpdf(bins, mu, sigma)
+    l = plt.plot(bins, y, 'r--', linewidth=2)
+
+    # plot
+    plt.xlabel('Smarts')
+    plt.ylabel('Probability')
+    plt.title(r'$\mathrm{Histogram\ of\ IQ:}\ \mu=%.3f,\ \sigma=%.3f$' % (mu, sigma))
+    plt.grid(True)
+
+    plt.show()
