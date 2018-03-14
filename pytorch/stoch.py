@@ -67,19 +67,91 @@ def to_real(stoch_tensor, bipolar=True):
     return (num_ones / length).squeeze()
 
 
+def multiply(stoch_tensor1, stoch_tensor2, bipolar=True):
+    '''
+    params:
+    stoch_tensor1   Stochastic tensor 1
+    stoch_tensor1   Stochastic tensor 2, needs to be the same shape as stoch_tensor1
+    bipolar         Set to true if tensor 1, 2 are b/w [1, 1]
+
+    returns:
+    The stochastic multiplication between these two streams
+    '''
+
+    assert(stoch_tensor1.shape == stoch_tensor2.shape)
+
+    if bipolar:
+        return stoch_tensor1 ^ stoch_tensor2
+    else:
+        return stoch_tensor1 & stoch_tensor2
+
+
+def accum(stoch_tensor, bipolar=True, mode='deter'):
+    '''
+    params:
+    stoch_tensor1   Vector of stochastic streams
+    bipolar         Set to true if tensor 1, 2 are b/w [1, 1]
+    mode            Mode to do addition: deter, stoch
+
+    returns:
+    Stochastic stream of the sum
+    '''
+
+    length = stoch_tensor.shape[-1]
+
+    if mode == 'deter':
+        accum_sum = to_real(stoch_tensor, bipolar).sum(dim=0)
+        if bipolar:
+            accum_sum.clamp_(-1, 1)
+        else:
+            accum_sum.clamp_(0, 1)
+        return to_stoch(accum_sum, length, bipolar)
+
+    elif mode == 'stoch':
+        # TODO: Implement this
+        return accum(stoch_tensor, bipolar)
+
+
+def dot(stoch_tensor1, stoch_tensor2, bipolar=True):
+    '''
+    params:
+    stoch_tensor1   Vector of stochastic streams
+    stoch_tensor1   Vector of stochastic streams. Same size as stoch_tensor1
+    bipolar         Set to true if tensor 1, 2 are b/w [1, 1]
+
+    returns:
+    Stochastic stream of the dot product result
+    '''
+
+    # Make sure it is a vector of stochastic streams
+    assert(len(stoch_tensor1.shape) == 2)
+    assert(len(stoch_tensor2.shape) == 2)
+
+    mul_result = multiply(stoch_tensor1, stoch_tensor2, bipolar)
+    return accum(mul_result, bipolar)
+
+
 if __name__ == '__main__':
     deterministic = True
     bipolar = True
     nbits = 8
-    length = 1024
+    length = 16
 
     x = torch.rand(5)
+    y = torch.rand(5)
     if bipolar:
         x = 2 * x - 1
+        y = 2 * y - 1
 
     x = quantize(x, nbits)
-    print(x)
+    y = quantize(x, nbits)
 
     apx = to_stoch(x, length, bipolar=bipolar, deterministic=deterministic)
-    print(apx)
-    print(to_real(apx, bipolar=bipolar))
+    apy = to_stoch(y, length, bipolar=bipolar, deterministic=deterministic)
+
+    print("Ideal ====== ")
+    print(torch.dot(x, y), end='\n\n')
+    print("Stoch Ideal ------")
+    print(torch.dot(to_real(apx, bipolar), to_real(apy, bipolar)), end='\n\n')
+    print("Stoch Actual ~~~~~")
+    print(to_real(dot(apx, apy, bipolar), bipolar), end='\n\n')
