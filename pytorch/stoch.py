@@ -62,9 +62,9 @@ def to_real(stoch_tensor, bipolar=True):
     num_ones = stoch_tensor.type(torch.FloatTensor).sum(-1)
 
     if bipolar:
-        return (1 - (2 * num_ones / length)).view(stoch_tensor.shape[:-1])
+        return (1 - (2 * num_ones / length))
 
-    return (num_ones / length).view(stoch_tensor.shape[:-1])
+    return num_ones / length
 
 
 def multiply(stoch_tensor1, stoch_tensor2, bipolar=True):
@@ -159,16 +159,18 @@ if __name__ == '__main__':
     deterministic = True
     bipolar = True
     nbits = 8
-    length = 1024
+    length = 16
 
-    x = torch.rand(1, 3)
-    y = torch.rand(3, 3)
+    x = torch.rand(5, 5)
+    y = torch.rand(5, 5)
     if bipolar:
         x = 2 * x - 1
         y = 2 * y - 1
 
     x = quantize(x, nbits)
     y = quantize(y, nbits)
+    # print(x)
+    # print(y)
 
     apx = to_stoch(x, length, bipolar=bipolar, deterministic=deterministic)
     apy = to_stoch(y, length, bipolar=bipolar, deterministic=deterministic)
@@ -178,6 +180,6 @@ if __name__ == '__main__':
     print("Ideal ====== ")
     print(torch.mm(x, y), end='\n\n')
     print("Stoch Ideal ------")
-    print(torch.mm(to_real(apx, bipolar), to_real(apy, bipolar)), end='\n\n')
+    print(torch.mm(to_real(apx, bipolar), to_real(apy, bipolar)).clamp_(-1 if bipolar else 0, 1), end='\n\n')
     print("Stoch Actual ~~~~~")
     print(to_real(mm(apx, apy, bipolar), bipolar), end='\n\n')
