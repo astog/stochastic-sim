@@ -7,7 +7,7 @@ def quantize(tensor, nbits=8):
     return tensor.mul(2**(nbits - 1)).round().div(2**(nbits - 1))
 
 
-def to_stoch(float_tensor, length, bipolar=True, deterministic=False):
+def to_stoch(float_tensor, length, bipolar=True, deterministic=True):
     '''
     params:
     float_tensor    Tensor between [0,1] or [-1,1] based on setting of bipolar
@@ -17,40 +17,33 @@ def to_stoch(float_tensor, length, bipolar=True, deterministic=False):
     returns:        Returns a byte tensor one higher dim than input, with the last dim being the bit array
     '''
 
-    stoch_s = None
     if deterministic:
-        # Find the number of 1's we want in our stream
-        num_ones = None
+        # Find the number of 0's we want in our stream
+        num_zeros = None
         if bipolar:
-            num_ones = (float_tensor + 1) * (length / 2)
+            num_zeros = (float_tensor + 1) * (length / 2)
         else:
-            num_ones = float_tensor * length
+            num_zeros = float_tensor * length
 
         # Setup for broadcasting
         mask_shape = float_tensor.size() + (length,)
-        num_ones = torch.round(num_ones).type(torch.LongTensor).view(float_tensor.size() + (1,))
+        num_zeros = num_zeros.round().type(torch.LongTensor).view(float_tensor.size() + (1,))
 
         # The mask values are a random permutation of arange(0, length-1)
-        mask_vals = torch.randperm(length)
-
-        # Set the bits we want
-        stoch_s = torch.zeros(*mask_shape)
-        stoch_s[mask_vals < num_ones] = 1
+        mask_vals = torch.randperm(length).type(torch.LongTensor)
+        # The stochastic stream is just the compare mask since it returns ByteTensor of appropriate shape (due to broadcast)
+        return mask_vals >= num_zeros
     else:
         # Add dimension to input so broadcasting to mask_shape works
         mask_shape = float_tensor.size() + (length,)
         float_tensor = float_tensor.view(float_tensor.size() + (1,))
 
         # Compute random numbers based on unipolar/bipolar
-        probs = torch.rand(*mask_shape)
+        samples = torch.rand(*mask_shape)
         if bipolar:
-            probs = (2 * probs) - 1
+            samples = (2 * samples) - 1
 
-        # Set the bits we want
-        stoch_s = torch.zeros(*mask_shape)
-        stoch_s[probs < float_tensor] = 1
-
-    return stoch_s
+        return samples >= float_tensor
 
 
 def to_real(stoch_tensor, bipolar=True):
@@ -64,26 +57,29 @@ def to_real(stoch_tensor, bipolar=True):
     '''
 
     length = stoch_tensor.shape[-1]
-    num_ones = stoch_tensor.sum(-1).type(torch.FloatTensor)
+
+    # Make sure to cast before sum since sum with ByteTensor results in overflow for longer lengths
+    num_ones = stoch_tensor.type(torch.FloatTensor).sum(-1)
 
     if bipolar:
-        return (2 * num_ones / length) - 1
+        return (1 - (2 * num_ones / length)).squeeze()
 
-    return num_ones / length
+    return (num_ones / length).squeeze()
 
 
 if __name__ == '__main__':
+    deterministic = True
     bipolar = True
     nbits = 8
-    length = 16
+    length = 1024
 
     x = torch.rand(5)
     if bipolar:
-        x = 2*x -1
+        x = 2 * x - 1
 
     x = quantize(x, nbits)
     print(x)
 
-    apx = to_stoch(x, length, bipolar=bipolar, deterministic=True)
-    # print(apx)
+    apx = to_stoch(x, length, bipolar=bipolar, deterministic=deterministic)
+    print(apx)
     print(to_real(apx, bipolar=bipolar))
