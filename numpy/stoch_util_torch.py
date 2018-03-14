@@ -6,7 +6,7 @@ from itertools import product
 def to_stoch(real_n, length, bipolar=True, deterministic=False):
     '''
     params:
-    real_n -    real number between [-1, 1]
+    real_n -    real number between [-1, 1] or [0, 1]
     length -    length of the returned array. Higher the length, the better is the approximation
     bipolar -   Set to false if the real_n is between [0, 1] not [-1 1]
 
