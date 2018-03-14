@@ -21,7 +21,7 @@ def to_stoch(float_tensor, length, bipolar=True, deterministic=True):
         # Find the number of 0's we want in our stream
         num_zeros = None
         if bipolar:
-            num_zeros = (float_tensor + 1) * (length / 2)
+            num_zeros = (float_tensor + 1) * (length / 2.0)
         else:
             num_zeros = float_tensor * length
 
