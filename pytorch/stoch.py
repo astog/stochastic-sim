@@ -62,9 +62,9 @@ def to_real(stoch_tensor, bipolar=True):
     num_ones = stoch_tensor.type(torch.FloatTensor).sum(-1)
 
     if bipolar:
-        return (1 - (2 * num_ones / length)).squeeze()
+        return (1 - (2 * num_ones / length)).view(stoch_tensor.shape[:-1])
 
-    return (num_ones / length).squeeze()
+    return (num_ones / length).view(stoch_tensor.shape[:-1])
 
 
 def multiply(stoch_tensor1, stoch_tensor2, bipolar=True):
@@ -77,8 +77,6 @@ def multiply(stoch_tensor1, stoch_tensor2, bipolar=True):
     returns:
     The stochastic multiplication between these two streams
     '''
-
-    assert(stoch_tensor1.shape == stoch_tensor2.shape)
 
     if bipolar:
         return stoch_tensor1 ^ stoch_tensor2
@@ -130,27 +128,56 @@ def dot(stoch_vector1, stoch_vector2, bipolar=True):
     return sum(multiply(stoch_vector1, stoch_vector2, bipolar), bipolar)
 
 
+def mm(stoch_matrix1, stoch_matrix2, bipolar=True):
+    '''
+    params:
+    stoch_matrix1   Matrix of stochastic streams
+    stoch_matrix2   Matrix of stochastic streams. Same size as stoch_vector1
+    bipolar         Set to true if tensor 1, 2 are b/w [1, 1]
+
+    returns:
+    Returns the stochastic equivalent to matrix multiplication
+    '''
+
+    # Make sure it is a matrix of stochastic streams
+    assert(len(stoch_matrix1.shape) == 3)
+    assert(len(stoch_matrix2.shape) == 3)
+
+    # Make sure matrix multiplication is mathematically valid
+    assert(stoch_matrix1.shape[1] == stoch_matrix2.shape[0])
+    assert(stoch_matrix1.shape[2] == stoch_matrix2.shape[2])
+
+    length = stoch_matrix1.shape[2]
+
+    m1 = stoch_matrix1.view(stoch_matrix1.shape[0], stoch_matrix1.shape[1], 1, length)
+    m2 = stoch_matrix2.view(1, stoch_matrix2.shape[0], stoch_matrix2.shape[1], length)
+    dot_sum = torch.sum(to_real(multiply(m1, m2), bipolar), dim=1)
+    return to_stoch(dot_sum, length, bipolar)
+
+
 if __name__ == '__main__':
     deterministic = True
     bipolar = True
     nbits = 8
-    length = 16
+    length = 1024
 
-    x = torch.rand(5)
-    y = torch.rand(5)
+    x = torch.rand(1, 3)
+    y = torch.rand(3, 3)
     if bipolar:
         x = 2 * x - 1
         y = 2 * y - 1
 
     x = quantize(x, nbits)
-    y = quantize(x, nbits)
+    y = quantize(y, nbits)
 
     apx = to_stoch(x, length, bipolar=bipolar, deterministic=deterministic)
     apy = to_stoch(y, length, bipolar=bipolar, deterministic=deterministic)
+    # print(to_real(apx, bipolar))
+    # print(to_real(apy, bipolar))
 
     print("Ideal ====== ")
-    print(torch.dot(x, y), end='\n\n')
+    print(torch.mm(x, y), end='\n\n')
     print("Stoch Ideal ------")
-    print(torch.dot(to_real(apx, bipolar), to_real(apy, bipolar)), end='\n\n')
+    print(torch.mm(to_real(apx, bipolar), to_real(apy, bipolar)), end='\n\n')
     print("Stoch Actual ~~~~~")
-    print(to_real(dot(apx, apy, bipolar), bipolar), end='\n\n')
+    print(to_real(mm(apx, apy, bipolar), bipolar), end='\n\n')
