@@ -9,27 +9,29 @@ def binarize(tensor):
     return tensor.sign()
 
 
-class BinarizeActivation(torch.autograd.Function):
+# NOTE: Currently just a normal relu
+class StochasticReLU(torch.autograd.Function):
     @staticmethod
     def forward(ctx, input):
-        ctx.org_input = input
-        return binarize(input)
+        ctx.save_for_backward(input)
+        return input.clamp(min=0)
 
     @staticmethod
     def backward(ctx, grad_output):
-        # Straight through estimator
+        input, = ctx.saved_tensors
         grad_input = grad_output.clone()
-        grad_input[ctx.org_input.abs() > 1] = 0
-        return grad_input, None
+        grad_input[input < 0] = 0
+        return grad_input
 
 
-class BinarizeFunction(torch.autograd.Function):
+class Stochify(torch.autograd.Function):
     @staticmethod
-    def forward(ctx, input, weight, bias=None):
+    def forward(ctx, input, weight, bias=None, length=8):
         # save parameters before binarizing
         ctx.save_for_backward(input, weight, bias)
-        weight = binarize(weight)
-        output = input.mm(weight.t())
+        api = stoch.to_stoch(input, length)
+        apw = stoch.to_stoch(weight.t(), length)
+        output = stoch.mm(api, apw, bipolar=True, output_stoch=False)
         if bias is not None:
             output += bias.unsqueeze(0).expand_as(output)
         return output
@@ -50,9 +52,9 @@ class BinarizeFunction(torch.autograd.Function):
         return grad_input, grad_weight, grad_bias
 
 
-class BinarizeLinear(nn.Module):
+class StochLinear(nn.Module):
     def __init__(self, input_features, output_features, bias=True):
-        super(BinarizeLinear, self).__init__()
+        super(StochLinear, self).__init__()
         self.input_features = input_features
         self.output_features = output_features
 
@@ -69,12 +71,12 @@ class BinarizeLinear(nn.Module):
             self.bias.data.zero_()
 
     def forward(self, input):
-        return BinarizeFunction.apply(input, self.weight, self.bias)
+        return Stochify.apply(input, self.weight, self.bias)
 
 
-class BinaryHardTanhH(nn.Module):
+class StochReLU(nn.Module):
     def __init__(self):
-        super(BinaryHardTanhH, self).__init__()
+        super(StochReLU, self).__init__()
 
     def forward(self, input):
-        return BinarizeActivation.apply(input)
+        return StochasticReLU.apply(input)

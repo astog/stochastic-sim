@@ -6,7 +6,7 @@ from progressbar import printProgressBar
 import torch.optim as optim
 from torchvision import datasets, transforms
 from torch.autograd import Variable
-from binarized_modules import BinarizeLinear, BinaryHardTanhH
+from binarized_modules import StochLinear, StochReLU
 import time
 
 # from models.binarized_modules import  Binarize,Ternarize,Ternarize2,Ternarize3,Ternarize4,HingeLoss
@@ -59,7 +59,7 @@ epsilon = 1e-4
 print("epsilon = " + str(epsilon))
 
 # MLP parameters
-num_units = 4096
+num_units = 1024
 print("num_units = " + str(num_units))
 
 # Training parameters
@@ -87,22 +87,22 @@ class Net(nn.Module):
         self.hidden_units = hidden_units
 
         self.dropin = nn.Dropout(dropout_in)
-        self.dense1 = BinarizeLinear(input_features, self.hidden_units)
+        self.dense1 = StochLinear(input_features, self.hidden_units)
         self.bn1 = nn.BatchNorm1d(self.hidden_units, epsilon, args.momentum)
-        self.actv1 = BinaryHardTanhH()  # Outputs -1, 1. Does straight through estimator in backprop
+        self.actv1 = StochReLU()
         self.drophidden1 = nn.Dropout(dropout_hidden)
 
-        self.dense2 = BinarizeLinear(self.hidden_units, self.hidden_units)
+        self.dense2 = StochLinear(self.hidden_units, self.hidden_units)
         self.bn2 = nn.BatchNorm1d(self.hidden_units, epsilon, args.momentum)
-        self.actv2 = BinaryHardTanhH()  # Outputs -1, 1. Does straight through estimator in backprop
+        self.actv2 = StochReLU()
         self.drophidden2 = nn.Dropout(dropout_hidden)
 
-        self.dense3 = BinarizeLinear(self.hidden_units, self.hidden_units)
+        self.dense3 = StochLinear(self.hidden_units, self.hidden_units)
         self.bn3 = nn.BatchNorm1d(self.hidden_units, epsilon, args.momentum)
-        self.actv3 = BinaryHardTanhH()  # Outputs -1, 1. Does straight through estimator in backprop
+        self.actv3 = StochReLU()
         self.drophidden3 = nn.Dropout(dropout_hidden)
 
-        self.dense4 = BinarizeLinear(self.hidden_units, output_features)
+        self.dense4 = StochLinear(self.hidden_units, output_features)
         self.bn4 = nn.BatchNorm1d(output_features, epsilon, args.momentum)
 
         self.logsoftmax = nn.LogSoftmax(dim=1)

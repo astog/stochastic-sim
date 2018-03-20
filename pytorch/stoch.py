@@ -41,12 +41,14 @@ def to_stoch(float_tensor, length, bipolar=True, deterministic=False):
     else:
         # Add dimension to input so broadcasting to mask_shape works
         mask_shape = float_tensor.size() + (length,)
-        float_tensor = float_tensor.view(float_tensor.size() + (1,))
+        float_tensor = float_tensor.unsqueeze(-1)
 
         # Compute random numbers based on unipolar/bipolar
-        samples = torch.rand(*mask_shape)
+        samples = None
         if bipolar:
-            samples = (2 * samples) - 1
+            samples = float_tensor.new(*mask_shape).uniform_(-1, 1)
+        else:
+            samples = float_tensor.new(*mask_shape).uniform_(0, 1)
 
         return samples >= float_tensor
 
@@ -63,8 +65,13 @@ def to_real(stoch_tensor, bipolar=True):
 
     length = stoch_tensor.shape[-1]
 
-    # Make sure to cast before sum since sum with ByteTensor results in overflow for longer lengths
-    num_ones = stoch_tensor.type(torch.FloatTensor).sum(-1)
+    # Make sure to cast after sum to reduce memory requirements
+    # NOTE: this forces the length to fit in ByteTensor ie of max 255 length
+    num_ones = None
+    if stoch_tensor.is_cuda:
+        num_ones = stoch_tensor.sum(-1).type(torch.cuda.FloatTensor)
+    else:
+        num_ones = stoch_tensor.sum(-1).type(torch.FloatTensor)
 
     if bipolar:
         return (1 - (2 * num_ones / length))
