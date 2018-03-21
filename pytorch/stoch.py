@@ -12,7 +12,7 @@ def quantize(tensor, nbits=8):
     return tensor.mul(2**(nbits - 1)).round().div(2**(nbits - 1))
 
 
-def to_stoch(float_tensor, length, bipolar=True, deterministic=False):
+def to_stoch(float_tensor, bipolar=True):
     '''
     params:
     float_tensor    Tensor between [0,1] or [-1,1] based on setting of bipolar
