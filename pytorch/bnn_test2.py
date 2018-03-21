@@ -6,7 +6,7 @@ from progressbar import printProgressBar
 import torch.optim as optim
 from torchvision import datasets, transforms
 from torch.autograd import Variable
-from binarized_modules2 import BinarizeLinear, BinaryHardTanhH
+from binarized_modules2 import BinarizeLinear, BinaryHardTanhH, binarize
 import time
 
 # from models.binarized_modules import  Binarize,Ternarize,Ternarize2,Ternarize3,Ternarize4,HingeLoss
@@ -28,6 +28,9 @@ parser.add_argument('--no-cuda', action='store_true', default=False,
                     help='disables CUDA training')
 parser.add_argument('--seed', type=int, default=1234, metavar='S',
                     help='random seed (default: 1234)')
+parser.add_argument('--npasses', type=int, default=8, metavar='S',
+                    help='number of passes to make per forward pass (default: 8)')
+
 args = parser.parse_args()
 args.cuda = not args.no_cuda and torch.cuda.is_available()
 
@@ -75,22 +78,23 @@ print("dropout_hidden = " + str(dropout_hidden))
 # Decaying LR
 LR_start = .03
 print("LR_start = " + str(LR_start))
-LR_fin = 0.0003
+LR_fin = 0.0125
 print("LR_fin = " + str(LR_fin))
 LR_decay = (LR_fin / LR_start)**(1. / args.epochs)
-print("LR_decay = " + str(LR_decay), end='\n\n')
+print("LR_decay = " + str(LR_decay))
 # BTW, LR decay might good for the BN moving average...
 
+print("Number of passes per forward: ", args.npasses, end='\n\n')
 
 class Net(nn.Module):
     def __init__(self, input_features, output_features, hidden_units):
         super(Net, self).__init__()
         self.hidden_units = hidden_units
 
-        self.dense1 = BinarizeLinear(input_features, self.hidden_units)
+        self.dense1 = BinarizeLinear(input_features, self.hidden_units, bias=False)
         self.actv1 = BinaryHardTanhH()  # Outputs -1, 1. Does straight through estimator in backprop
 
-        self.dense4 = BinarizeLinear(self.hidden_units, output_features)
+        self.dense4 = BinarizeLinear(self.hidden_units, output_features, bias=False)
         self.logsoftmax = nn.LogSoftmax(dim=1)
 
     def forward(self, x):
@@ -126,13 +130,21 @@ optimizer = optim.Adam(model.parameters(), lr=LR_start)
 
 
 def forward_pass(model, data):
-    partial_output = model(data)
-    for i in xrange(6):
-        partial_output += model(data)
+    # Binarize the data without adding it to the autograd graph
+    data.data = binarize(data.detach().data)
+    return model(data)
+
+
+def merged_forward_pass(model, data, npasses):
+    if npasses >= 2:
+        partial_output = forward_pass(model, data)
+        for i in xrange(npasses-2):
+            partial_output += forward_pass(model, data)
 
     # When adding the partial result, detach it
-    # This ensure that functional graph from the first 7 bits does not get autograd
-    output = (model(data) + partial_output.detach()) / 8.0
+    # This ensure that functional graph from the previous passes does not get autograd
+    # Only one backward pass for npasses of forward pass
+    output = (forward_pass(model, data) + partial_output.detach()) / 8.0
     return output
 
 
@@ -145,7 +157,7 @@ def train(epoch):
             data, target = data.cuda(), target.cuda()
         data, target = Variable(data), Variable(target)
         optimizer.zero_grad()
-        output = model(data)
+        output = merged_forward_pass(model, data, args.npasses)
         loss = criterion(output, target)
 
         optimizer.zero_grad()
@@ -157,15 +169,16 @@ def train(epoch):
         # 3: Make sure to clip weights / biases between -1, 1.
         model.back_clamp()
 
-        train_batch_loss = 0.9*train_batch_loss + 0.1*loss.data[0]
+        train_batch_loss += float(loss)
         printProgressBar((batch_idx + 1) * len(data), len(train_loader.dataset), length=50)
         # if batch_idx % args.log_interval == 0:
         #     print('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
         #         epoch, batch_idx * len(data), len(train_loader.dataset),
-        #         100. * batch_idx / len(train_loader), loss.data[0]))
+        #         100. * batch_idx / len(train_loader), float(loss)))
 
     # Decay LR
     optimizer.param_groups[0]['lr'] *= LR_decay
+    print("Train Set - Average batch loss: {:.6f}".format(train_batch_loss / float(len(train_loader))))
 
 
 def test():
@@ -176,13 +189,13 @@ def test():
         if args.cuda:
             data, target = data.cuda(), target.cuda()
         data, target = Variable(data, volatile=True), Variable(target)
-        output = forward_pass(model, data)
+        output = merged_forward_pass(model, data, args.npasses)
         test_loss += criterion(output, target).data[0]  # sum up batch loss
         pred = output.data.max(1, keepdim=True)[1]  # get the index of the max log-probability
         correct += pred.eq(target.data.view_as(pred)).cpu().sum()
 
     test_loss /= len(test_loader.dataset)
-    print('\nTest set: Average loss: {:.4f}, Accuracy: {}/{} ({:.0f}%)'.format(
+    print('\nTest set: Total loss: {:.4f}, Accuracy: {}/{} ({:.0f}%)'.format(
         test_loss, correct, len(test_loader.dataset),
         100. * correct / len(test_loader.dataset)))
 
@@ -194,6 +207,7 @@ if __name__ == '__main__':
     for epoch in range(1, args.epochs + 1):
         time_start = time.clock()
         train(epoch)
+        print("Running Test Set")
         max_correct = max(test(), max_correct)
         time_end = time.clock() - time_start
         print("Took time {} sec(s)\n".format(time_end))

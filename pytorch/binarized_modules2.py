@@ -5,15 +5,18 @@ import math
 import stoch_bin as stoch
 
 
-def binarize(tensor):
-    return (0.5 - stoch.binarize(tensor).type(torch.FloatTensor)).sign()
+def binarize(tensor, deterministic=False):
+    if deterministic:
+        return tensor.sign()
+    else:
+        return (0.5 - stoch.binarize(tensor).type(torch.FloatTensor)).sign()
 
 
 class BinarizeActivation(torch.autograd.Function):
     @staticmethod
     def forward(ctx, input):
         ctx.org_input = input
-        return binarize(input)
+        return binarize(input, deterministic=True)
 
     @staticmethod
     def backward(ctx, grad_output):
@@ -67,7 +70,7 @@ class BinarizeLinear(nn.Module):
         # Do Xavier Glorot initialization
         n = input_features + output_features
         self.weight.data.normal_(0, math.sqrt(2.0 / n))
-        if bias is not None:
+        if bias:
             self.bias.data.zero_()
 
     def forward(self, input):
