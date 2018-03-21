@@ -41,14 +41,14 @@ if args.cuda:
 
 kwargs = {'num_workers': 1, 'pin_memory': True} if args.cuda else {}
 train_loader = torch.utils.data.DataLoader(
-    datasets.MNIST(data, train=True, download=True,
+    datasets.MNIST(args.dpath, train=True, download=True,
                    transform=transforms.Compose([
                        transforms.ToTensor(),
                        transforms.Normalize((0.1307,), (0.3081,))
                    ])),
     batch_size=args.batch_size, shuffle=True, **kwargs)
 test_loader = torch.utils.data.DataLoader(
-    datasets.MNIST(data, train=False, transform=transforms.Compose([
+    datasets.MNIST(args.dpath, train=False, transform=transforms.Compose([
         transforms.ToTensor(),
         transforms.Normalize((0.1307,), (0.3081,))
     ])),
@@ -85,6 +85,7 @@ print("LR_decay = " + str(LR_decay))
 # BTW, LR decay might good for the BN moving average...
 
 print("Number of passes per forward: ", args.npasses, end='\n\n')
+
 
 class Net(nn.Module):
     def __init__(self, input_features, output_features, hidden_units):

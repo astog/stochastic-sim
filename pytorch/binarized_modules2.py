@@ -9,7 +9,7 @@ def binarize(tensor, deterministic=False):
     if deterministic:
         return tensor.sign()
     else:
-        return (0.5 - stoch.binarize(tensor).type(torch.FloatTensor)).sign()
+        return (0.5 - stoch.binarize(tensor).type(type(tensor))).sign()
 
 
 class BinarizeActivation(torch.autograd.Function):
