@@ -11,8 +11,8 @@ import time
 
 # from models.binarized_modules import  Binarize,Ternarize,Ternarize2,Ternarize3,Ternarize4,HingeLoss
 
-# data = '/media/gaurav/Data/udata/pytorch_data/'
-data = '/home/gaurav/pytorch_data/'
+data = '/media/gaurav/Data/udata/pytorch_data/'
+# data = '/home/gaurav/pytorch_data/'
 
 # Training settings
 parser = argparse.ArgumentParser(description='PyTorch MNIST Example')
@@ -28,6 +28,8 @@ parser.add_argument('--no-cuda', action='store_true', default=False,
                     help='disables CUDA training')
 parser.add_argument('--seed', type=int, default=1234, metavar='S',
                     help='random seed (default: 1234)')
+parser.add_argument('--log-interval', type=int, default=10, metavar='N',
+                    help='how many batches to wait before logging training status')
 args = parser.parse_args()
 args.cuda = not args.no_cuda and torch.cuda.is_available()
 
@@ -60,7 +62,7 @@ epsilon = 1e-4
 print("epsilon = " + str(epsilon))
 
 # MLP parameters
-num_units = 1024
+num_units = 4096
 print("num_units = " + str(num_units))
 
 # Training parameters
@@ -73,9 +75,9 @@ dropout_hidden = .5
 print("dropout_hidden = " + str(dropout_hidden))
 
 # Decaying LR
-LR_start = .03
+LR_start = .003
 print("LR_start = " + str(LR_start))
-LR_fin = 0.0003
+LR_fin = 4.80e-04
 print("LR_fin = " + str(LR_fin))
 LR_decay = (LR_fin / LR_start)**(1. / args.epochs)
 print("LR_decay = " + str(LR_decay), end='\n\n')
@@ -87,28 +89,67 @@ class Net(nn.Module):
         super(Net, self).__init__()
         self.hidden_units = hidden_units
 
+        self.dropin = nn.Dropout(dropout_in)
         self.dense1 = BinarizeLinear(input_features, self.hidden_units)
-        self.actv1 = BinaryHardTanhH()  # Outputs -1, 1. Does straight through estimator in backprop
+        self.bn1 = nn.BatchNorm1d(self.hidden_units, epsilon, args.momentum)
+        self.actv1 = BinaryHardTanhH()
+        self.drophidden1 = nn.Dropout(dropout_hidden)
+
+        self.dense2 = BinarizeLinear(self.hidden_units, self.hidden_units)
+        self.bn2 = nn.BatchNorm1d(self.hidden_units, epsilon, args.momentum)
+        self.actv2 = BinaryHardTanhH()
+        self.drophidden2 = nn.Dropout(dropout_hidden)
+
+        self.dense3 = BinarizeLinear(self.hidden_units, self.hidden_units)
+        self.bn3 = nn.BatchNorm1d(self.hidden_units, epsilon, args.momentum)
+        self.actv3 = BinaryHardTanhH()
+        self.drophidden3 = nn.Dropout(dropout_hidden)
 
         self.dense4 = BinarizeLinear(self.hidden_units, output_features)
-        self.logsoftmax = nn.LogSoftmax(dim=1)
+        self.bn4 = nn.BatchNorm1d(output_features, epsilon, args.momentum)
+
 
     def forward(self, x):
         # Input layer
         x = x.view(-1, 28 * 28)
+        x = self.dropin(x)
 
         # 1st hidden layer
         x = self.dense1(x)
+        x = self.bn1(x)
         x = self.actv1(x)
+        x = self.drophidden1(x)
+
+        # 2nd hidden layer
+        x = self.dense2(x)
+        x = self.bn2(x)
+        x = self.actv2(x)
+        x = self.drophidden2(x)
+
+        # 3nd hidden layer
+        x = self.dense3(x)
+        x = self.bn3(x)
+        x = self.actv3(x)
+        x = self.drophidden3(x)
 
         # Output Layer
         x = self.dense4(x)
+        x = self.bn4(x)
+
         return x
 
     def back_clamp(self):
         self.dense1.weight.data.clamp_(-1, 1)
         if self.dense1.bias is not None:
             self.dense1.bias.data.clamp_(-1, 1)
+
+        self.dense2.weight.data.clamp_(-1, 1)
+        if self.dense2.bias is not None:
+            self.dense2.bias.data.clamp_(-1, 1)
+
+        self.dense3.weight.data.clamp_(-1, 1)
+        if self.dense3.bias is not None:
+            self.dense3.bias.data.clamp_(-1, 1)
 
         self.dense4.weight.data.clamp_(-1, 1)
         if self.dense4.bias is not None:
@@ -126,6 +167,8 @@ optimizer = optim.Adam(model.parameters(), lr=LR_start)
 
 
 def forward_pass(model, data):
+    # return model(data)
+
     partial_output = model(data)
     for i in xrange(6):
         partial_output += model(data)
@@ -145,7 +188,7 @@ def train(epoch):
             data, target = data.cuda(), target.cuda()
         data, target = Variable(data), Variable(target)
         optimizer.zero_grad()
-        output = model(data)
+        output = forward_pass(model, data)
         loss = criterion(output, target)
 
         optimizer.zero_grad()
@@ -158,11 +201,11 @@ def train(epoch):
         model.back_clamp()
 
         train_batch_loss = 0.9*train_batch_loss + 0.1*loss.data[0]
-        printProgressBar((batch_idx + 1) * len(data), len(train_loader.dataset), length=50)
-        # if batch_idx % args.log_interval == 0:
-        #     print('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
-        #         epoch, batch_idx * len(data), len(train_loader.dataset),
-        #         100. * batch_idx / len(train_loader), loss.data[0]))
+        # printProgressBar((batch_idx + 1) * len(data), len(train_loader.dataset), length=50)
+        if batch_idx % args.log_interval == 0:
+            print('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
+                epoch, batch_idx * len(data), len(train_loader.dataset),
+                100. * batch_idx / len(train_loader), loss.data[0]))
 
     # Decay LR
     optimizer.param_groups[0]['lr'] *= LR_decay
@@ -194,6 +237,7 @@ if __name__ == '__main__':
     for epoch in range(1, args.epochs + 1):
         time_start = time.clock()
         train(epoch)
+        print("Finished Training. Running Test Set")
         max_correct = max(test(), max_correct)
         time_end = time.clock() - time_start
         print("Took time {} sec(s)\n".format(time_end))

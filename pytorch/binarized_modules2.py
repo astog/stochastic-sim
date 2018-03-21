@@ -6,7 +6,8 @@ import stoch_bin as stoch
 
 
 def binarize(tensor):
-    return (0.5 - stoch.binarize(tensor).type(torch.FloatTensor)).sign()
+    return (0.5 - stoch.binarize(tensor).type(type(tensor))).sign()
+    # return tensor.sign()
 
 
 class BinarizeActivation(torch.autograd.Function):
