@@ -2,7 +2,7 @@ from __future__ import print_function
 import torch
 import torch.nn as nn
 import math
-import stoch
+import stoch_stream as stoch
 
 
 def binarize(tensor):

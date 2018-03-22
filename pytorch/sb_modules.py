@@ -2,14 +2,14 @@ from __future__ import print_function
 import torch
 import torch.nn as nn
 import math
-import stoch_bin as stoch
+import stochbin as sb
 
 
 def binarize(tensor, deterministic=False):
     if deterministic:
         return tensor.sign()
     else:
-        return (0.5 - stoch.binarize(tensor).type(type(tensor))).sign()
+        return (0.5 - sb.binarize(tensor).type(type(tensor))).sign()
 
 
 class BinarizeActivation(torch.autograd.Function):
