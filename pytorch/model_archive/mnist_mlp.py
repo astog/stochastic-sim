@@ -9,10 +9,11 @@ import time
 
 # from models.binarized_modules import  Binarize,Ternarize,Ternarize2,Ternarize3,Ternarize4,HingeLoss
 
-data = '/home/gaurav/pytorch_data/'
 
 # Training settings
 parser = argparse.ArgumentParser(description='PyTorch MNIST Example')
+parser.add_argument('--dpath', type=str, default="./pytorch_data/", metavar='P',
+                    help='path of download folder')
 parser.add_argument('--batch-size', type=int, default=100, metavar='N',
                     help='input batch size for training (default: 64)')
 parser.add_argument('--test-batch-size', type=int, default=100, metavar='N',
@@ -38,14 +39,14 @@ if args.cuda:
 
 kwargs = {'num_workers': 1, 'pin_memory': True} if args.cuda else {}
 train_loader = torch.utils.data.DataLoader(
-    datasets.MNIST(data, train=True, download=True,
+    datasets.MNIST(args.dpath, train=True, download=True,
                    transform=transforms.Compose([
                        transforms.ToTensor(),
                        transforms.Normalize((0.1307,), (0.3081,))
                    ])),
     batch_size=args.batch_size, shuffle=True, **kwargs)
 test_loader = torch.utils.data.DataLoader(
-    datasets.MNIST(data, train=False, transform=transforms.Compose([
+    datasets.MNIST(args.dpath, train=False, transform=transforms.Compose([
         transforms.ToTensor(),
         transforms.Normalize((0.1307,), (0.3081,))
     ])),
@@ -75,7 +76,7 @@ print("dropout_hidden = " + str(dropout_hidden))
 # Decaying LR
 LR_start = .003
 print("LR_start = " + str(LR_start))
-LR_fin = 0.0003
+LR_fin = 3e-05
 print("LR_fin = " + str(LR_fin))
 LR_decay = (LR_fin / LR_start)**(1. / args.epochs)
 print("LR_decay = " + str(LR_decay), end='\n\n')
