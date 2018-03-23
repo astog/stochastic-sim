@@ -47,6 +47,7 @@ train_loader = torch.utils.data.DataLoader(
                        transforms.Normalize((0.1307,), (0.3081,))
                    ])),
     batch_size=args.batch_size, shuffle=True, **kwargs)
+
 test_loader = torch.utils.data.DataLoader(
     datasets.MNIST(args.dpath, train=False, transform=transforms.Compose([
         transforms.ToTensor(),
@@ -63,7 +64,7 @@ epsilon = 1e-4
 print("epsilon = " + str(epsilon))
 
 # MLP parameters
-num_units = 4096
+num_units = 1024
 print("num_units = " + str(num_units))
 
 # Training parameters
