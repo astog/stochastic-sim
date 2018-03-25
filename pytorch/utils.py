@@ -1,6 +1,11 @@
 from __future__ import print_function
 
 
+def quantize(tensor, nbits=8):
+    # one bit is needed for the sign
+    return tensor.mul(2**(nbits - 1)).round().div(2**(nbits - 1))
+
+
 def printProgressBar(iteration, total, prefix='', suffix='', decimals=1, length=100, fill='#'):
     """
     Call in a loop to create terminal progress bar

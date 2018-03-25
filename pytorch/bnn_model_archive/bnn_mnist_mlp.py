@@ -60,12 +60,14 @@ indices = list(range(num_train))
 split = int(np.floor(args.valid_pcent * num_train))
 
 if args.shuffle:
+    np.random.seed(args.seed)
     np.random.shuffle(indices)
 
 train_idx, valid_idx = indices[split:], indices[:split]
 train_sampler = SubsetRandomSampler(train_idx)
 valid_sampler = SubsetRandomSampler(valid_idx)
 
+print("Building batches with shuffle:", args.shuffle)
 train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=args.test_bsize, sampler=train_sampler, **kwargs)
 valid_loader = torch.utils.data.DataLoader(valid_dataset, batch_size=args.valid_bsize, sampler=valid_sampler, **kwargs)
 test_loader = torch.utils.data.DataLoader(test_dataset, batch_size=args.test_bsize, shuffle=args.shuffle, **kwargs)
@@ -168,7 +170,7 @@ def train(epoch):
         optimizer.step()
 
         # 3: Make sure to clip weights / biases between -1, 1.
-        # model.back_clamp()
+        model.back_clamp()
 
         train_batch_count += 1
         train_batch_avg_loss += float(loss)

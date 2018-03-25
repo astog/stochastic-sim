@@ -3,11 +3,6 @@ import torch
 import numpy as np
 
 
-def quantize(tensor, nbits=8):
-    # one bit is needed for the sign
-    return tensor.mul(2**(nbits - 1)).round().div(2**(nbits - 1))
-
-
 def binarize(float_tensor, bipolar=True):
     '''
     params:

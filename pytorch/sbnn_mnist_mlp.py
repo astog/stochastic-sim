@@ -7,6 +7,7 @@ from torchvision import datasets, transforms
 from torch.utils.data.sampler import SubsetRandomSampler
 from torch.autograd import Variable
 from sb_modules import BinarizeLinear, BinaryHardTanhH
+from stochbin import binarize
 import time
 import datetime
 import numpy as np
@@ -22,6 +23,7 @@ parser.add_argument('--train-bsize', type=int, default=100)
 parser.add_argument('--valid-bsize', type=int, default=100)
 parser.add_argument('--test-bsize', type=int, default=100)
 parser.add_argument('--hunits', type=int, default=1024)
+parser.add_argument('--npasses', type=int, default=8)
 parser.add_argument('--momentum', type=float, default=0.1)
 parser.add_argument('--dp-in', type=float, default=0.2)
 parser.add_argument('--dp-hidden', type=float, default=0.5)
@@ -60,6 +62,7 @@ indices = list(range(num_train))
 split = int(np.floor(args.valid_pcent * num_train))
 
 if args.shuffle:
+    np.random.seed(args.seed)
     np.random.shuffle(indices)
 
 train_idx, valid_idx = indices[split:], indices[:split]
@@ -142,6 +145,27 @@ criterion = nn.CrossEntropyLoss()
 optimizer = optim.Adam(model.parameters(), lr=args.lr)
 
 
+def forward_pass(model, data):
+    # Binarize the data without adding it to the autograd graph
+    # data.data = binarize(data.detach().data)
+    return model(data)
+
+
+def merged_forward_pass(model, data, npasses):
+    if npasses >= 2:
+        partial_output = forward_pass(model, data)
+        for i in xrange(npasses - 2):
+            partial_output += forward_pass(model, data)
+
+        # When adding the partial result, detach it
+        # This ensure that functional graph from the previous passes does not get autograd
+        # Only one backward pass for npasses of forward pass
+        output = forward_pass(model, data) + partial_output.detach()
+        return output
+    else:
+        return forward_pass(model, data)
+
+
 def train(epoch):
     # Initialize batchnorm and dropout layers for training
     model.train()
@@ -157,7 +181,7 @@ def train(epoch):
         data, target = Variable(data), Variable(target)
         optimizer.zero_grad()
 
-        output = model(data)
+        output = merged_forward_pass(model, data, args.npasses)
 
         loss = criterion(output, target)
 
@@ -168,7 +192,7 @@ def train(epoch):
         optimizer.step()
 
         # 3: Make sure to clip weights / biases between -1, 1.
-        # model.back_clamp()
+        model.back_clamp()
 
         train_batch_count += 1
         train_batch_avg_loss += float(loss)
@@ -204,7 +228,7 @@ def validate(epoch):
             data, target = data.cuda(), target.cuda()
         data, target = Variable(data, volatile=True), Variable(target)
 
-        output = model(data)
+        output = merged_forward_pass(model, data, args.npasses)
         loss = criterion(output, target).data[0]  # sum up batch loss
 
         pred = output.data.max(1, keepdim=True)[1]  # get the index of the max log-probability
@@ -251,7 +275,7 @@ def test(epoch):
             data, target = data.cuda(), target.cuda()
         data, target = Variable(data, volatile=True), Variable(target)
 
-        output = model(data)
+        output = merged_forward_pass(model, data, args.npasses)
         loss = criterion(output, target).data[0]  # sum up batch loss
 
         pred = output.data.max(1, keepdim=True)[1]  # get the index of the max log-probability
@@ -320,3 +344,7 @@ if __name__ == '__main__':
         test_correct, len(test_loader)*args.test_bsize,
         100. * (float(test_correct) / (len(test_loader)*args.test_bsize))
     ))
+
+    st = int(time.time())
+    save_model_path = "{}-{}.mkl".format("model", st)
+    torch.save(model.state_dict(), save_model_path)
