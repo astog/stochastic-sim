@@ -33,3 +33,6 @@
 
 # Python Cache
 *.pyc
+
+# Saved models
+*.mkl
