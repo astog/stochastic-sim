@@ -18,7 +18,7 @@ class BinarizeActivation(torch.autograd.Function):
     def forward(ctx, input, training=False):
         ctx.training = training
         ctx.org_input = input
-        return binarize(input)
+        return binarize(input, deterministic=True)
 
     @staticmethod
     def backward(ctx, grad_output):
@@ -29,13 +29,14 @@ class BinarizeActivation(torch.autograd.Function):
         return grad_input, None
 
 
-class BinarizeFunction(torch.autograd.Function):
+class BinarizeMulAdd(torch.autograd.Function):
     @staticmethod
     def forward(ctx, input, weight, bias=None, training=False):
         # save parameters before binarizing
         ctx.save_for_backward(input, weight, bias)
         weight = binarize(weight)
         output = input.mm(weight.t())
+
         if bias is not None:
             output += bias.unsqueeze(0).expand_as(output)
         return output
@@ -51,6 +52,7 @@ class BinarizeFunction(torch.autograd.Function):
             grad_input = grad_output.mm(weight)
         if ctx.needs_input_grad[1]:
             grad_weight = grad_output.t().mm(input)
+
         if bias is not None and ctx.needs_input_grad[2]:
             grad_bias = grad_output.sum(0).squeeze(0)
 
@@ -72,11 +74,12 @@ class BinarizeLinear(nn.Module):
         # Do Xavier Glorot initialization
         n = input_features + output_features
         self.weight.data.normal_(0, math.sqrt(2.0 / n))
+
         if bias:
             self.bias.data.zero_()
 
     def forward(self, input):
-        return BinarizeFunction.apply(input, self.weight, self.bias, self.training)
+        return BinarizeMulAdd.apply(input, self.weight, self.bias, self.training)
 
 
 class BinaryHardTanhH(nn.Module):

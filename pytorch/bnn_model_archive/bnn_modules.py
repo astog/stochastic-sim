@@ -64,7 +64,7 @@ class BinarizeLinear(nn.Module):
         # Do Xavier Glorot initialization
         n = input_features + output_features
         self.weight.data.normal_(0, math.sqrt(2.0 / n))
-        if bias is not None:
+        if bias:
             self.bias.data.zero_()
 
     def forward(self, input):

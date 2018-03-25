@@ -4,18 +4,23 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from torchvision import datasets, transforms
+from torch.utils.data.sampler import SubsetRandomSampler
 from torch.autograd import Variable
 from bnn_modules import BinarizeLinear, BinaryHardTanhH
 import time
 import datetime
+import numpy as np
 
 # Training settings
 parser = argparse.ArgumentParser(description='Stochastic BNN for MNIST MLP')
 parser.add_argument('--seed', type=int, default=1234)
 parser.add_argument('--lr', type=float, default=0.001)
 parser.add_argument('--epochs', type=int, default=1000)
-parser.add_argument('--batch-size', type=int, default=100)
-parser.add_argument('--test-batch-size', type=int, default=100)
+parser.add_argument('--no-shuffle', action='store_true', default=False)
+parser.add_argument('--valid-pcent', type=float, default=0.1)
+parser.add_argument('--train-bsize', type=int, default=100)
+parser.add_argument('--valid-bsize', type=int, default=100)
+parser.add_argument('--test-bsize', type=int, default=100)
 parser.add_argument('--hunits', type=int, default=1024)
 parser.add_argument('--momentum', type=float, default=0.1)
 parser.add_argument('--dp-in', type=float, default=0.2)
@@ -33,6 +38,7 @@ for arg in vars(args):
 print("\n")
 
 args.cuda = not args.no_cuda and torch.cuda.is_available()
+args.shuffle = not args.no_shuffle
 
 torch.manual_seed(args.seed)
 if args.cuda:
@@ -45,12 +51,24 @@ transform = transforms.Compose([
 ])
 # Cuda dataset arguments
 kwargs = {'num_workers': 1, 'pin_memory': True} if args.cuda else {}
-
 train_dataset = datasets.MNIST(args.dpath, train=True, download=args.download, transform=transform)
-train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True, **kwargs)
-
+valid_dataset = datasets.MNIST(args.dpath, train=True, download=args.download, transform=transform)
 test_dataset = datasets.MNIST(args.dpath, train=False, download=args.download, transform=transform)
-test_loader = torch.utils.data.DataLoader(test_dataset, batch_size=args.test_batch_size, shuffle=True, **kwargs)
+
+num_train = len(train_dataset)
+indices = list(range(num_train))
+split = int(np.floor(args.valid_pcent * num_train))
+
+if args.shuffle:
+    np.random.shuffle(indices)
+
+train_idx, valid_idx = indices[split:], indices[:split]
+train_sampler = SubsetRandomSampler(train_idx)
+valid_sampler = SubsetRandomSampler(valid_idx)
+
+train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=args.test_bsize, sampler=train_sampler, **kwargs)
+valid_loader = torch.utils.data.DataLoader(valid_dataset, batch_size=args.valid_bsize, sampler=valid_sampler, **kwargs)
+test_loader = torch.utils.data.DataLoader(test_dataset, batch_size=args.test_bsize, shuffle=args.shuffle, **kwargs)
 
 
 class Net(nn.Module):
@@ -59,22 +77,22 @@ class Net(nn.Module):
         self.hidden_units = hidden_units
 
         self.dropin = nn.Dropout(args.dp_in)
-        self.dense1 = BinarizeLinear(input_features, self.hidden_units)
+        self.dense1 = BinarizeLinear(input_features, self.hidden_units, bias=False)
         self.bn1 = nn.BatchNorm1d(self.hidden_units, args.epsilon, args.momentum)
         self.actv1 = BinaryHardTanhH()
         self.drophidden1 = nn.Dropout(args.dp_hidden)
 
-        self.dense2 = BinarizeLinear(self.hidden_units, self.hidden_units)
+        self.dense2 = BinarizeLinear(self.hidden_units, self.hidden_units, bias=False)
         self.bn2 = nn.BatchNorm1d(self.hidden_units, args.epsilon, args.momentum)
         self.actv2 = BinaryHardTanhH()
         self.drophidden2 = nn.Dropout(args.dp_hidden)
 
-        self.dense3 = BinarizeLinear(self.hidden_units, self.hidden_units)
+        self.dense3 = BinarizeLinear(self.hidden_units, self.hidden_units, bias=False)
         self.bn3 = nn.BatchNorm1d(self.hidden_units, args.epsilon, args.momentum)
         self.actv3 = BinaryHardTanhH()
         self.drophidden3 = nn.Dropout(args.dp_hidden)
 
-        self.dense4 = BinarizeLinear(self.hidden_units, output_features)
+        self.dense4 = BinarizeLinear(self.hidden_units, output_features, bias=False)
         self.bn4 = nn.BatchNorm1d(output_features, args.epsilon, args.momentum)
 
     def forward(self, x):
@@ -107,21 +125,11 @@ class Net(nn.Module):
         return x
 
     def back_clamp(self):
-        self.dense1.weight.data.clamp_(-1, 1)
-        if self.dense1.bias is not None:
-            self.dense1.bias.data.clamp_(-1, 1)
-
-        self.dense2.weight.data.clamp_(-1, 1)
-        if self.dense2.bias is not None:
-            self.dense2.bias.data.clamp_(-1, 1)
-
-        self.dense3.weight.data.clamp_(-1, 1)
-        if self.dense3.bias is not None:
-            self.dense3.bias.data.clamp_(-1, 1)
-
-        self.dense4.weight.data.clamp_(-1, 1)
-        if self.dense4.bias is not None:
-            self.dense4.bias.data.clamp_(-1, 1)
+        for module in self.modules():
+            if isinstance(module, BinarizeLinear):
+                module.weight.data.clamp_(-1, 1)
+                if module.bias is not None:
+                    module.bias.data.clamp_(-1, 1)
 
 
 model = Net(28 * 28, 10, args.hunits)
@@ -167,18 +175,65 @@ def train(epoch):
         train_batch_avg_count += 1
 
         if batch_idx % args.log_interval == 0:
-            print("Epoch: {: <6}\tBatches: {: 7.2f}%\t Average Batch Loss: {:.5e}".format(
+            print("Epoch: {: <6}\tBatches: {: 7.2f}%\tAverage Batch Loss: {:.5e}".format(
                 epoch, 100. * train_batch_count / len(train_loader),
-                float(loss) / train_batch_avg_count
+                train_batch_avg_loss / train_batch_avg_count
             ))
             train_batch_avg_loss = 0
             train_batch_avg_count = 0
 
-    if train_batch_avg_loss > 0:
+    if train_batch_avg_count > 0:
         print("Epoch: {: <6}\tBatches: {: 7.2f}%\tAverage Batch Loss: {:.5e}".format(
             epoch, 100. * train_batch_count / len(train_loader),
-            float(loss) / train_batch_avg_count
+            train_batch_avg_loss / train_batch_avg_count
         ))
+
+
+def validate(epoch):
+    # Initialize batchnorm and dropout layers for testing
+    model.eval()
+
+    # Logging variables
+    correct = 0
+    valid_batch_count = 0
+    valid_batch_avg_loss = 0
+    valid_batch_avg_count = 0
+
+    for batch_idx, (data, target) in enumerate(valid_loader, 1):
+        if args.cuda:
+            data, target = data.cuda(), target.cuda()
+        data, target = Variable(data, volatile=True), Variable(target)
+
+        output = model(data)
+        loss = criterion(output, target).data[0]  # sum up batch loss
+
+        pred = output.data.max(1, keepdim=True)[1]  # get the index of the max log-probability
+        correct += pred.eq(target.data.view_as(pred)).cpu().sum()
+
+        valid_batch_count += 1
+        valid_batch_avg_loss += float(loss)
+        valid_batch_avg_count += 1
+
+        if batch_idx % args.log_interval == 0:
+            print("Epoch: {: <6}\tBatches: {: 7.2f}%\tAverage Batch Loss: {:.5e}".format(
+                epoch, 100. * valid_batch_count / len(valid_loader),
+                valid_batch_avg_loss / valid_batch_avg_count
+            ))
+            valid_batch_avg_loss = 0
+            valid_batch_avg_count = 0
+
+    if valid_batch_avg_count > 0:
+        print("Epoch: {: <6}\tBatches: {: 7.2f}%\tAverage Batch Loss: {:.5e}".format(
+            epoch, 100. * valid_batch_count / len(valid_loader),
+            float(loss) / valid_batch_avg_count
+        ))
+
+    print('\nValidation set accuracy: {}/{} ({:.4f}%)'.format(
+        correct, len(valid_loader)*args.valid_bsize,
+        100. * (float(correct) / (len(valid_loader)*args.valid_bsize))
+    ))
+
+    return correct
 
 
 def test(epoch):
@@ -209,32 +264,48 @@ def test(epoch):
         if batch_idx % args.log_interval == 0:
             print("Epoch: {: <6}\tBatches: {: 7.2f}%\tAverage Batch Loss: {:.5e}".format(
                 epoch, 100. * test_batch_count / len(test_loader),
-                float(loss) / test_batch_avg_count
+                test_batch_avg_loss / test_batch_avg_count
             ))
-            train_batch_avg_loss = 0
+            test_batch_avg_loss = 0
             test_batch_avg_count = 0
 
-    if train_batch_avg_loss > 0:
+    if test_batch_avg_count > 0:
         print("Epoch: {: <6}\tBatches: {: 7.2f}%\tAverage Batch Loss: {:.5e}".format(
             epoch, 100. * test_batch_count / len(test_loader),
             float(loss) / test_batch_avg_count
         ))
 
     print('\nTest set accuracy: {}/{} ({:.4f}%)'.format(
-        correct, len(test_loader.dataset),
-        100. * correct / len(test_loader.dataset)
+        correct, len(test_loader)*args.test_bsize,
+        100. * (float(correct) / (len(test_loader)*args.test_bsize))
     ))
 
     return correct
 
 
 if __name__ == '__main__':
-    correct = None
+    print("Training batches:", len(train_loader))
+    print("Validation batches:", len(valid_loader))
+    print("Test batches:", len(test_loader), end='\n\n')
+    max_valid_correct = 0
+    test_correct = 0
     for epoch in range(1, args.epochs + 1):
         time_start = time.clock()
         train(epoch)
-        print("\n{:-<72}\n".format(""))
-        correct = test(epoch)
+        print("\n{:-<72}".format(""))
+        print("Validation:\n")
+        correct = validate(epoch)
+        if correct > max_valid_correct:
+            max_valid_correct = correct
+            print("\n{:-<72}".format(""))
+            print("Test:\n")
+            test_correct = test(epoch)
+        else:
+            print('\nBest Validation set accuracy: {}/{} ({:.4f}%)'.format(
+                max_valid_correct, len(valid_loader)*args.valid_bsize,
+                100. * (float(max_valid_correct) / (len(valid_loader)*args.valid_bsize))
+            ))
+
         time_complete = time.clock() - time_start
         print("\nTime to complete epoch {} == {} sec(s)".format(
             epoch, time_complete
@@ -245,4 +316,7 @@ if __name__ == '__main__':
 
         print("{:=<72}\n".format(""))
 
-    print("\nFinal test accuracy: {:.4f}".format(100. * correct / len(test_loader.dataset), end='\n\n'))
+    print('\nFinal Test set accuracy: {}/{} ({:.4f}%)'.format(
+        test_correct, len(test_loader)*args.test_bsize,
+        100. * (float(test_correct) / (len(test_loader)*args.test_bsize))
+    ))
