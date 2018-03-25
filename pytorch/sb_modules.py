@@ -18,7 +18,7 @@ class BinarizeActivation(torch.autograd.Function):
     def forward(ctx, input, training=False):
         ctx.training = training
         ctx.org_input = input
-        return binarize(input, deterministic=True)
+        return binarize(input, deterministic=False)
 
     @staticmethod
     def backward(ctx, grad_output):

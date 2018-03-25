@@ -11,6 +11,7 @@ from stochbin import binarize
 import time
 import datetime
 import numpy as np
+import matplotlib.pyplot as plt
 
 # Training settings
 parser = argparse.ArgumentParser(description='Stochastic BNN for MNIST MLP')
@@ -32,6 +33,7 @@ parser.add_argument('--dpath', type=str, default="./pytorch_data/")
 parser.add_argument('--download', action='store_true', default=False)
 parser.add_argument('--no-cuda', action='store_true', default=False)
 parser.add_argument('--log-interval', type=int, default=50)
+parser.add_argument('--check', type=str, default=None)
 
 args = parser.parse_args()
 
@@ -75,30 +77,30 @@ test_loader = torch.utils.data.DataLoader(test_dataset, batch_size=args.test_bsi
 
 
 class Net(nn.Module):
-    def __init__(self, input_features, output_features, hidden_units):
+    def __init__(self, input_features, output_features, hidden_units, npasses):
         super(Net, self).__init__()
-        self.hidden_units = hidden_units
+        self.npasses = npasses
 
         self.dropin = nn.Dropout(args.dp_in)
-        self.dense1 = BinarizeLinear(input_features, self.hidden_units, bias=False)
-        self.bn1 = nn.BatchNorm1d(self.hidden_units, args.epsilon, args.momentum)
+        self.dense1 = BinarizeLinear(input_features, hidden_units, bias=False)
+        self.bn1 = nn.BatchNorm1d(hidden_units, args.epsilon, args.momentum)
         self.actv1 = BinaryHardTanhH()
         self.drophidden1 = nn.Dropout(args.dp_hidden)
 
-        self.dense2 = BinarizeLinear(self.hidden_units, self.hidden_units, bias=False)
-        self.bn2 = nn.BatchNorm1d(self.hidden_units, args.epsilon, args.momentum)
+        self.dense2 = BinarizeLinear(hidden_units, hidden_units, bias=False)
+        self.bn2 = nn.BatchNorm1d(hidden_units, args.epsilon, args.momentum)
         self.actv2 = BinaryHardTanhH()
         self.drophidden2 = nn.Dropout(args.dp_hidden)
 
-        self.dense3 = BinarizeLinear(self.hidden_units, self.hidden_units, bias=False)
-        self.bn3 = nn.BatchNorm1d(self.hidden_units, args.epsilon, args.momentum)
+        self.dense3 = BinarizeLinear(hidden_units, hidden_units, bias=False)
+        self.bn3 = nn.BatchNorm1d(hidden_units, args.epsilon, args.momentum)
         self.actv3 = BinaryHardTanhH()
         self.drophidden3 = nn.Dropout(args.dp_hidden)
 
-        self.dense4 = BinarizeLinear(self.hidden_units, output_features, bias=False)
+        self.dense4 = BinarizeLinear(hidden_units, output_features, bias=False)
         self.bn4 = nn.BatchNorm1d(output_features, args.epsilon, args.momentum)
 
-    def forward(self, x):
+    def fpass(self, x):
         # Input layer
         x = x.view(-1, 28 * 28)
         x = self.dropin(x)
@@ -106,26 +108,41 @@ class Net(nn.Module):
         # 1st hidden layer
         x = self.dense1(x)
         x = self.bn1(x)
+
         x = self.actv1(x)
         x = self.drophidden1(x)
 
         # 2nd hidden layer
         x = self.dense2(x)
         x = self.bn2(x)
+
         x = self.actv2(x)
         x = self.drophidden2(x)
 
         # 3nd hidden layer
         x = self.dense3(x)
         x = self.bn3(x)
+
         x = self.actv3(x)
         x = self.drophidden3(x)
 
         # Output Layer
         x = self.dense4(x)
-        x = self.bn4(x)
-
         return x
+
+    def forward(self, x):
+        if self.npasses >= 2:
+            partial_output = self.fpass(x)
+            for i in xrange(self.npasses - 2):
+                partial_output += self.fpass(x)
+
+            # When adding the partial result, detach it
+            # This ensure that functional graph from the previous passes does not get autograd
+            # Only one backward pass for npasses of forward pass
+            output = self.fpass(x) + partial_output.detach()
+            return output
+        else:
+            return self.fpass(x)
 
     def back_clamp(self):
         for module in self.modules():
@@ -135,7 +152,7 @@ class Net(nn.Module):
                     module.bias.data.clamp_(-1, 1)
 
 
-model = Net(28 * 28, 10, args.hunits)
+model = Net(28 * 28, 10, args.hunits, args.npasses)
 if args.cuda:
     torch.cuda.set_device(0)
     model.cuda()
@@ -143,27 +160,6 @@ if args.cuda:
 
 criterion = nn.CrossEntropyLoss()
 optimizer = optim.Adam(model.parameters(), lr=args.lr)
-
-
-def forward_pass(model, data):
-    # Binarize the data without adding it to the autograd graph
-    # data.data = binarize(data.detach().data)
-    return model(data)
-
-
-def merged_forward_pass(model, data, npasses):
-    if npasses >= 2:
-        partial_output = forward_pass(model, data)
-        for i in xrange(npasses - 2):
-            partial_output += forward_pass(model, data)
-
-        # When adding the partial result, detach it
-        # This ensure that functional graph from the previous passes does not get autograd
-        # Only one backward pass for npasses of forward pass
-        output = forward_pass(model, data) + partial_output.detach()
-        return output
-    else:
-        return forward_pass(model, data)
 
 
 def train(epoch):
@@ -181,7 +177,7 @@ def train(epoch):
         data, target = Variable(data), Variable(target)
         optimizer.zero_grad()
 
-        output = merged_forward_pass(model, data, args.npasses)
+        output = model(data)
 
         loss = criterion(output, target)
 
@@ -228,7 +224,7 @@ def validate(epoch):
             data, target = data.cuda(), target.cuda()
         data, target = Variable(data, volatile=True), Variable(target)
 
-        output = merged_forward_pass(model, data, args.npasses)
+        output = model(data)
         loss = criterion(output, target).data[0]  # sum up batch loss
 
         pred = output.data.max(1, keepdim=True)[1]  # get the index of the max log-probability
@@ -275,7 +271,7 @@ def test(epoch):
             data, target = data.cuda(), target.cuda()
         data, target = Variable(data, volatile=True), Variable(target)
 
-        output = merged_forward_pass(model, data, args.npasses)
+        output = model(data)
         loss = criterion(output, target).data[0]  # sum up batch loss
 
         pred = output.data.max(1, keepdim=True)[1]  # get the index of the max log-probability
@@ -311,40 +307,47 @@ if __name__ == '__main__':
     print("Training batches:", len(train_loader))
     print("Validation batches:", len(valid_loader))
     print("Test batches:", len(test_loader), end='\n\n')
-    max_valid_correct = 0
-    test_correct = 0
-    for epoch in range(1, args.epochs + 1):
-        time_start = time.clock()
-        train(epoch)
-        print("\n{:-<72}".format(""))
-        print("Validation:\n")
-        correct = validate(epoch)
-        if correct > max_valid_correct:
-            max_valid_correct = correct
+    if args.check is not None:
+        print("Loading module", args.check)
+        model.load_state_dict(torch.load(args.check))
+        train(0)
+        validate(0)
+        test(0)
+    else:
+        max_valid_correct = 0
+        test_correct = 0
+        for epoch in range(1, args.epochs + 1):
+            time_start = time.clock()
+            train(epoch)
             print("\n{:-<72}".format(""))
-            print("Test:\n")
-            test_correct = test(epoch)
-        else:
-            print('\nBest Validation set accuracy: {}/{} ({:.4f}%)'.format(
-                max_valid_correct, len(valid_loader)*args.valid_bsize,
-                100. * (float(max_valid_correct) / (len(valid_loader)*args.valid_bsize))
+            print("Validation:\n")
+            correct = validate(epoch)
+            if correct > max_valid_correct:
+                max_valid_correct = correct
+                print("\n{:-<72}".format(""))
+                print("Test:\n")
+                test_correct = test(epoch)
+            else:
+                print('\nBest Validation set accuracy: {}/{} ({:.4f}%)'.format(
+                    max_valid_correct, len(valid_loader)*args.valid_bsize,
+                    100. * (float(max_valid_correct) / (len(valid_loader)*args.valid_bsize))
+                ))
+
+            time_complete = time.clock() - time_start
+            print("\nTime to complete epoch {} == {} sec(s)".format(
+                epoch, time_complete
+            ))
+            print("Estimated time left == {}".format(
+                str(datetime.timedelta(seconds=time_complete * (args.epochs - epoch)))
             ))
 
-        time_complete = time.clock() - time_start
-        print("\nTime to complete epoch {} == {} sec(s)".format(
-            epoch, time_complete
+            print("{:=<72}\n".format(""))
+
+        print('\nFinal Test set accuracy: {}/{} ({:.4f}%)'.format(
+            test_correct, len(test_loader)*args.test_bsize,
+            100. * (float(test_correct) / (len(test_loader)*args.test_bsize))
         ))
-        print("Estimated time left == {}".format(
-            str(datetime.timedelta(seconds=time_complete * (args.epochs - epoch)))
-        ))
 
-        print("{:=<72}\n".format(""))
-
-    print('\nFinal Test set accuracy: {}/{} ({:.4f}%)'.format(
-        test_correct, len(test_loader)*args.test_bsize,
-        100. * (float(test_correct) / (len(test_loader)*args.test_bsize))
-    ))
-
-    st = int(time.time())
-    save_model_path = "{}-{}.mkl".format("model", st)
-    torch.save(model.state_dict(), save_model_path)
+        st = int(time.time())
+        save_model_path = "{}-{}.mkl".format("model", st)
+        torch.save(model.state_dict(), save_model_path)
