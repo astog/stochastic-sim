@@ -1,37 +1,30 @@
 from __future__ import print_function
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 import math
-import stochbin as sb
 
 
-def binarize(tensor, deterministic=False):
-    if deterministic:
-        return tensor.sign()
-    else:
-        return (0.5 - sb.binarize(tensor.tanh()).type(type(tensor))).sign()
+def binarize(tensor):
+    return tensor.sign()
 
 
 class BinarizeActivation(torch.autograd.Function):
     @staticmethod
-    def forward(ctx, input, training=False):
-        ctx.training = training
+    def forward(ctx, input):
         ctx.org_input = input
         return binarize(input)
 
     @staticmethod
     def backward(ctx, grad_output):
-        # print("Doing backward pass on ACTIVATION")
         # Straight through estimator
-        grad_input = grad_output.clone()
+        grad_input = grad_output
         grad_input[ctx.org_input.abs() > 1] = 0
         return grad_input, None
 
 
 class BinarizeFunction(torch.autograd.Function):
     @staticmethod
-    def forward(ctx, input, weight, bias=None, training=False):
+    def forward(ctx, input, weight, bias=None):
         # save parameters before binarizing
         ctx.save_for_backward(input, weight, bias)
         weight = binarize(weight)
@@ -43,7 +36,6 @@ class BinarizeFunction(torch.autograd.Function):
     # This function has only a single output, so it gets only one gradient
     @staticmethod
     def backward(ctx, grad_output):
-        # print("Doing backward pass on FUNCTION")
         input, weight, bias = ctx.saved_variables
         grad_input = grad_weight = grad_bias = None
 
@@ -54,7 +46,7 @@ class BinarizeFunction(torch.autograd.Function):
         if bias is not None and ctx.needs_input_grad[2]:
             grad_bias = grad_output.sum(0).squeeze(0)
 
-        return grad_input, grad_weight, grad_bias, None
+        return grad_input, grad_weight, grad_bias
 
 
 class BinarizeLinear(nn.Module):
@@ -72,11 +64,11 @@ class BinarizeLinear(nn.Module):
         # Do Xavier Glorot initialization
         n = input_features + output_features
         self.weight.data.normal_(0, math.sqrt(2.0 / n))
-        if bias:
+        if bias is not None:
             self.bias.data.zero_()
 
     def forward(self, input):
-        return BinarizeFunction.apply(input, self.weight, self.bias, self.training)
+        return BinarizeFunction.apply(input, self.weight, self.bias)
 
 
 class BinaryHardTanhH(nn.Module):
@@ -84,4 +76,4 @@ class BinaryHardTanhH(nn.Module):
         super(BinaryHardTanhH, self).__init__()
 
     def forward(self, input):
-        return BinarizeActivation.apply(input, self.training)
+        return BinarizeActivation.apply(input)

@@ -5,7 +5,7 @@ import torch.nn as nn
 import torch.optim as optim
 from torchvision import datasets, transforms
 from torch.autograd import Variable
-from sb_modules import BinarizeLinear, BinaryHardTanhH, binarize
+from bnn_modules import BinarizeLinear, BinaryHardTanhH
 import time
 import datetime
 
@@ -17,7 +17,6 @@ parser.add_argument('--epochs', type=int, default=1000)
 parser.add_argument('--batch-size', type=int, default=100)
 parser.add_argument('--test-batch-size', type=int, default=100)
 parser.add_argument('--hunits', type=int, default=1024)
-parser.add_argument('--npasses', type=int, default=8)
 parser.add_argument('--momentum', type=float, default=0.1)
 parser.add_argument('--dp-in', type=float, default=0.2)
 parser.add_argument('--dp-hidden', type=float, default=0.5)
@@ -108,11 +107,21 @@ class Net(nn.Module):
         return x
 
     def back_clamp(self):
-        for module in self.modules():
-            if isinstance(module, BinarizeLinear):
-                module.weight.data.clamp_(-1, 1)
-                if module.bias is not None:
-                    module.bias.data.clamp_(-1, 1)
+        self.dense1.weight.data.clamp_(-1, 1)
+        if self.dense1.bias is not None:
+            self.dense1.bias.data.clamp_(-1, 1)
+
+        self.dense2.weight.data.clamp_(-1, 1)
+        if self.dense2.bias is not None:
+            self.dense2.bias.data.clamp_(-1, 1)
+
+        self.dense3.weight.data.clamp_(-1, 1)
+        if self.dense3.bias is not None:
+            self.dense3.bias.data.clamp_(-1, 1)
+
+        self.dense4.weight.data.clamp_(-1, 1)
+        if self.dense4.bias is not None:
+            self.dense4.bias.data.clamp_(-1, 1)
 
 
 model = Net(28 * 28, 10, args.hunits)
@@ -123,25 +132,6 @@ if args.cuda:
 
 criterion = nn.CrossEntropyLoss()
 optimizer = optim.Adam(model.parameters(), lr=args.lr)
-
-
-def forward_pass(model, data):
-    # Binarize the data without adding it to the autograd graph
-    data.data = binarize(data.detach().data)
-    return model(data)
-
-
-def merged_forward_pass(model, data, npasses):
-    if npasses >= 2:
-        partial_output = forward_pass(model, data)
-        for i in xrange(npasses - 2):
-            partial_output += forward_pass(model, data)
-
-    # When adding the partial result, detach it
-    # This ensure that functional graph from the previous passes does not get autograd
-    # Only one backward pass for npasses of forward pass
-    output = forward_pass(model, data) + partial_output.detach()
-    return output
 
 
 def train(epoch):
@@ -159,7 +149,7 @@ def train(epoch):
         data, target = Variable(data), Variable(target)
         optimizer.zero_grad()
 
-        output = merged_forward_pass(model, data, args.npasses)
+        output = model(data)
 
         loss = criterion(output, target)
 
@@ -170,7 +160,7 @@ def train(epoch):
         optimizer.step()
 
         # 3: Make sure to clip weights / biases between -1, 1.
-        model.back_clamp()
+        # model.back_clamp()
 
         train_batch_count += 1
         train_batch_avg_loss += float(loss)
@@ -206,7 +196,7 @@ def test(epoch):
             data, target = data.cuda(), target.cuda()
         data, target = Variable(data, volatile=True), Variable(target)
 
-        output = merged_forward_pass(model, data, args.npasses)
+        output = model(data)
         loss = criterion(output, target).data[0]  # sum up batch loss
 
         pred = output.data.max(1, keepdim=True)[1]  # get the index of the max log-probability
