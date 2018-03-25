@@ -3,7 +3,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import math
-import stochbin as sb
+import stoch_util as sb
 import warnings
 
 

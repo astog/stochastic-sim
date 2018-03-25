@@ -8,7 +8,7 @@ from torch.utils.data.sampler import SubsetRandomSampler
 from torch.autograd import Variable
 
 # Models
-from sbnn_mnist_mlp import Net
+from sbnn_models.mlp import Net
 
 import time
 import datetime
@@ -22,9 +22,7 @@ parser.add_argument('--lr', type=float, default=0.001)
 parser.add_argument('--epochs', type=int, default=1000)
 parser.add_argument('--no-shuffle', action='store_true', default=False)
 parser.add_argument('--valid-pcent', type=float, default=0.1)
-parser.add_argument('--train-bsize', type=int, default=100)
-parser.add_argument('--valid-bsize', type=int, default=100)
-parser.add_argument('--test-bsize', type=int, default=100)
+parser.add_argument('--batch_size', type=int, default=100)
 parser.add_argument('--hunits', type=int, default=1024)
 parser.add_argument('--npasses', type=int, default=8)
 parser.add_argument('--momentum', type=float, default=0.1)
@@ -74,9 +72,9 @@ train_idx, valid_idx = indices[split:], indices[:split]
 train_sampler = SubsetRandomSampler(train_idx)
 valid_sampler = SubsetRandomSampler(valid_idx)
 
-train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=args.test_bsize, sampler=train_sampler, **kwargs)
-valid_loader = torch.utils.data.DataLoader(valid_dataset, batch_size=args.valid_bsize, sampler=valid_sampler, **kwargs)
-test_loader = torch.utils.data.DataLoader(test_dataset, batch_size=args.test_bsize, shuffle=args.shuffle, **kwargs)
+train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=args.batch_size, sampler=train_sampler, **kwargs)
+valid_loader = torch.utils.data.DataLoader(valid_dataset, batch_size=args.batch_size, sampler=valid_sampler, **kwargs)
+test_loader = torch.utils.data.DataLoader(test_dataset, batch_size=args.batch_size, shuffle=args.shuffle, **kwargs)
 
 
 model = Net(28 * 28, 10, args.hunits, args.npasses, bias=True, dp_hidden=args.dp_hidden, momentum=args.momentum, epsilon=args.epsilon)
@@ -167,8 +165,8 @@ def validate(epoch):
         ))
 
     print('\nValidation set accuracy: {}/{} ({:.4f}%)'.format(
-        correct, len(valid_loader)*args.valid_bsize,
-        100. * (float(correct) / (len(valid_loader)*args.valid_bsize))
+        correct, len(valid_loader)*args.batch_size,
+        100. * (float(correct) / (len(valid_loader)*args.batch_size))
     ))
 
     return correct
@@ -214,8 +212,8 @@ def test(epoch):
         ))
 
     print('\nTest set accuracy: {}/{} ({:.4f}%)'.format(
-        correct, len(test_loader)*args.test_bsize,
-        100. * (float(correct) / (len(test_loader)*args.test_bsize))
+        correct, len(test_loader)*args.batch_size,
+        100. * (float(correct) / (len(test_loader)*args.batch_size))
     ))
 
     return correct
@@ -247,8 +245,8 @@ if __name__ == '__main__':
                 test_correct = test(epoch)
             else:
                 print('\nBest Validation set accuracy: {}/{} ({:.4f}%)'.format(
-                    max_valid_correct, len(valid_loader)*args.valid_bsize,
-                    100. * (float(max_valid_correct) / (len(valid_loader)*args.valid_bsize))
+                    max_valid_correct, len(valid_loader)*args.batch_size,
+                    100. * (float(max_valid_correct) / (len(valid_loader)*args.batch_size))
                 ))
 
             time_complete = time.clock() - time_start
@@ -262,8 +260,8 @@ if __name__ == '__main__':
             print("{:=<72}\n".format(""))
 
         print('\nFinal Test set accuracy: {}/{} ({:.4f}%)'.format(
-            test_correct, len(test_loader)*args.test_bsize,
-            100. * (float(test_correct) / (len(test_loader)*args.test_bsize))
+            test_correct, len(test_loader)*args.batch_size,
+            100. * (float(test_correct) / (len(test_loader)*args.batch_size))
         ))
 
         if args.save:

@@ -1,13 +1,14 @@
 from __future__ import print_function
 import torch
 import torch.nn as nn
-from sb_modules import BinarizedLinear, bhtanh
+from modules import BinarizedLinear, bhtanh
 
 
 class Net(nn.Module):
     def __init__(self, input_features, output_features, hidden_units, npasses, bias=False, dp_hidden=0.5, momentum=0.1, epsilon=1e-6):
         super(Net, self).__init__()
         self.npasses = npasses
+        self.input_features = input_features
 
         self.dense1 = BinarizedLinear(input_features, hidden_units, bias=bias)
         self.bn1 = nn.BatchNorm1d(hidden_units, epsilon, momentum)
@@ -25,7 +26,7 @@ class Net(nn.Module):
 
     def fpass(self, x):
         # Input layer
-        x = x.view(-1, 28 * 28)
+        x = x.view(-1, self.input_features)
 
         # 1st hidden layer
         x = self.dense1(x)
