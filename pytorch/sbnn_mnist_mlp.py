@@ -1,11 +1,7 @@
 from __future__ import print_function
 import torch
 import torch.nn as nn
-import torch.optim as optim
-from torch.autograd import Variable
-from sb_modules import BinarizeLinear, BinaryHardTanhH
-import time
-import datetime
+from sb_modules import BinarizedLinear, bhtanh
 
 
 class Net(nn.Module):
@@ -13,23 +9,19 @@ class Net(nn.Module):
         super(Net, self).__init__()
         self.npasses = npasses
 
-        self.dense1 = BinarizeLinear(input_features, hidden_units, bias=bias)
+        self.dense1 = BinarizedLinear(input_features, hidden_units, bias=bias)
         self.bn1 = nn.BatchNorm1d(hidden_units, epsilon, momentum)
-        self.actv1 = BinaryHardTanhH()
         self.drophidden1 = nn.Dropout(dp_hidden)
 
-        self.dense2 = BinarizeLinear(hidden_units, hidden_units, bias=bias)
+        self.dense2 = BinarizedLinear(hidden_units, hidden_units, bias=bias)
         self.bn2 = nn.BatchNorm1d(hidden_units, epsilon, momentum)
-        self.actv2 = BinaryHardTanhH()
         self.drophidden2 = nn.Dropout(dp_hidden)
 
-        self.dense3 = BinarizeLinear(hidden_units, hidden_units, bias=bias)
+        self.dense3 = BinarizedLinear(hidden_units, hidden_units, bias=bias)
         self.bn3 = nn.BatchNorm1d(hidden_units, epsilon, momentum)
-        self.actv3 = BinaryHardTanhH()
         self.drophidden3 = nn.Dropout(dp_hidden)
 
-        self.dense4 = BinarizeLinear(hidden_units, output_features, bias=bias)
-        self.bn4 = nn.BatchNorm1d(output_features, epsilon, momentum)
+        self.dense4 = BinarizedLinear(hidden_units, output_features, bias=bias)
 
     def fpass(self, x):
         # Input layer
@@ -38,19 +30,19 @@ class Net(nn.Module):
         # 1st hidden layer
         x = self.dense1(x)
         x = self.bn1(x)
-        x = self.actv1(x)
+        x = bhtanh(x)
         x = self.drophidden1(x)
 
         # 2nd hidden layer
         x = self.dense2(x)
         x = self.bn2(x)
-        x = self.actv2(x)
+        x = bhtanh(x)
         x = self.drophidden2(x)
 
         # 3nd hidden layer
         x = self.dense3(x)
         x = self.bn3(x)
-        x = self.actv3(x)
+        x = bhtanh(x)
         x = self.drophidden3(x)
 
         # Output Layer
@@ -79,5 +71,5 @@ class Net(nn.Module):
 
     def back_clamp(self):
         for module in self.modules():
-            if isinstance(module, BinarizeLinear):
+            if isinstance(module, BinarizedLinear):
                 module.weight.data.clamp_(-1, 1)

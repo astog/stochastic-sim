@@ -79,7 +79,7 @@ valid_loader = torch.utils.data.DataLoader(valid_dataset, batch_size=args.valid_
 test_loader = torch.utils.data.DataLoader(test_dataset, batch_size=args.test_bsize, shuffle=args.shuffle, **kwargs)
 
 
-model = Net(28 * 28, 10, args.hunits, args.npasses, bias=False, dp_hidden=args.dp_hidden, momentum=args.momentum, epsilon=args.epsilon)
+model = Net(28 * 28, 10, args.hunits, args.npasses, bias=True, dp_hidden=args.dp_hidden, momentum=args.momentum, epsilon=args.epsilon)
 if args.cuda:
     torch.cuda.set_device(0)
     model.cuda()
