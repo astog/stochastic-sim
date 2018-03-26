@@ -2,72 +2,50 @@ from __future__ import print_function
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import math
 import stoch_util as sb
 import warnings
 
 
-def binarize(tensor, deterministic=False):
+def binarize_(tensor, deterministic=False):
     if deterministic:
-        return tensor.sign()
+        tensor.sign_()
     else:
-        return (0.5 - sb.binarize(tensor.tanh()).type(type(tensor))).sign()
+        mask = sb.binarize(tensor)
+        tensor[mask] = -1
+        tensor[1-mask] = 1
 
 
-class BinarizedMM(torch.autograd.Function):
-    @staticmethod
-    def forward(ctx, input, weight, training=False):
-        # save parameters before binarizing
-        ctx.save_for_backward(input, weight)
-        weight = binarize(weight)
-        output = input.mm(weight.t())
-
-        return output
-
-    # This function has only a single output, so it gets only one gradient
-    @staticmethod
-    def backward(ctx, grad_output):
-        # print("Doing backward pass on FUNCTION")
-        input, weight = ctx.saved_variables
-        grad_input = grad_weight = None
-
-        if ctx.needs_input_grad[0]:
-            grad_input = grad_output.mm(weight)
-        if ctx.needs_input_grad[1]:
-            grad_weight = grad_output.t().mm(input)
-
-        return grad_input, grad_weight, None
-
-
-bmm = BinarizedMM.apply
-
-
-class BinarizedLinear(nn.Module):
+class BinarizedLinear(nn.Linear):
     def __init__(self, input_features, output_features, bias=False):
-        super(BinarizedLinear, self).__init__()
-        self.input_features = input_features
-        self.output_features = output_features
-
-        self.weight = nn.Parameter(torch.Tensor(output_features, input_features))
-
         # Have the bias as a parameter to make it identitical to other Linear modules. Raise warning if used though
         if bias:
             warnings.warn("Bias is deprecated. Running with no bias", DeprecationWarning)
+            bias = False
 
-        # Do Xavier Glorot initialization
-        n = input_features + output_features
-        self.weight.data.normal_(0, math.sqrt(2.0 / n))
+        super(BinarizedLinear, self).__init__(input_features, output_features, bias)
+        self.real_weight = self.weight.data.clone()
 
     def forward(self, input):
-        return bmm(input, self.weight, self.training)
+        self.weight.data.copy_(self.real_weight)
+        binarize_(self.weight.data)
+
+        return F.linear(input, self.weight)
+
+    def save_param(self):
+        # print(self.real_weight, self.weight.data)
+        self.real_weight.copy_(self.weight.data)
+
+    def restore_param(self):
+        # print(self.weight.data, self.real_weight)
+        self.weight.data.copy_(self.real_weight)
 
 
 class BinarizedHardTanH(torch.autograd.Function):
     @staticmethod
-    def forward(ctx, input, training=False):
-        ctx.training = training
-        ctx.org_input = input
-        return binarize(input, deterministic=True)
+    def forward(ctx, input):
+        ctx.org_input = input.clone()
+        binarize_(input, deterministic=True)
+        return input
 
     @staticmethod
     def backward(ctx, grad_output):

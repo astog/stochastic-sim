@@ -5,6 +5,25 @@ from modules import BinarizedLinear, bhtanh
 
 
 class Net(nn.Module):
+    def __init__(self):
+        super(Net, self).__init__()
+        self.conv1 = nn.Conv2d(1, 10, kernel_size=5)
+        self.conv2 = nn.Conv2d(10, 20, kernel_size=5)
+        self.conv2_drop = nn.Dropout2d()
+        self.fc1 = nn.Linear(320, 50)
+        self.fc2 = nn.Linear(50, 10)
+
+    def forward(self, x):
+        x = F.relu(F.max_pool2d(self.conv1(x), 2))
+        x = F.relu(F.max_pool2d(self.conv2_drop(self.conv2(x)), 2))
+        x = x.view(-1, 320)
+        x = F.relu(self.fc1(x))
+        x = F.dropout(x, training=self.training)
+        x = self.fc2(x)
+        return F.log_softmax(x, dim=1)
+
+
+class Net(nn.Module):
     def __init__(self, input_features, output_features, hidden_units, npasses, bias=False, dp_hidden=0.5, momentum=0.1, epsilon=1e-6):
         super(Net, self).__init__()
         self.npasses = npasses
@@ -23,7 +42,6 @@ class Net(nn.Module):
         self.drophidden3 = nn.Dropout(dp_hidden)
 
         self.dense4 = BinarizedLinear(hidden_units, output_features, bias=bias)
-        self.bn4 = nn.BatchNorm1d(output_features, epsilon, momentum)
 
     def fpass(self, x):
         # Input layer
@@ -49,12 +67,9 @@ class Net(nn.Module):
 
         # Output Layer
         x = self.dense4(x)
-        x = self.bn4(x)
         return x
 
     def forward(self, x):
-        # Save weights before binarization
-        self.save_weights()
         if self.npasses >= 2:
             partial_output = self.fpass(x)
             for i in xrange(self.npasses - 2):
@@ -63,35 +78,18 @@ class Net(nn.Module):
             # When adding the partial result, detach it
             # This ensure that functional graph from the previous passes does not get autograd
             # Only one backward pass for npasses of forward pass
-            output = (self.fpass(x) + partial_output.detach()) / self.npasses
+            output = self.fpass(x) + partial_output.detach()
             return output
-
-        return self.fpass(x)
+        else:
+            return self.fpass(x)
 
     def backward(self, loss, optimizer):
-        # Restore real weights before doing backprop (so that gradients are calculated accurately)
-        self.restore_weights()
-
-        # Zero grads, before calculation
         optimizer.zero_grad()
         loss.backward()
-
         optimizer.step()
-
-        # Clamp weights between [-1, 1]
         self.back_clamp()
-
-    def save_weights(self):
-        for module in self.modules():
-            if hasattr(module, 'save_param'):
-                module.save_param()
-
-    def restore_weights(self):
-        for module in self.modules():
-            if hasattr(module, 'restore_param'):
-                module.restore_param()
 
     def back_clamp(self):
         for module in self.modules():
             if isinstance(module, BinarizedLinear):
-                module.weight.data.clamp(-1, 1)
+                module.weight.data.clamp_(-1, 1)

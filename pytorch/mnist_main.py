@@ -223,6 +223,7 @@ if __name__ == '__main__':
     print("Training batches:", len(train_loader))
     print("Validation batches:", len(valid_loader))
     print("Test batches:", len(test_loader), end='\n\n')
+
     if args.check is not None:
         print("Loading module", args.check)
         model.load_state_dict(torch.load(args.check))
