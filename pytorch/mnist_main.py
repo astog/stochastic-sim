@@ -6,35 +6,43 @@ import torch.optim as optim
 from torchvision import datasets, transforms
 from torch.utils.data.sampler import SubsetRandomSampler
 from torch.autograd import Variable
+from Adam import Adam
 
 # Models
 # from sbnn_models.mlp import Net
-from model_archive.lenet5 import Net
+# from model_archive.lenet5 import Net
+from sbnn_models.lenet5 import Net
+# from model_archive.mnist_mlp import Net
 
 import time
 import datetime
+import math
 import numpy as np
+from scipy.stats import norm
+import matplotlib.mlab as mlab
 import matplotlib.pyplot as plt
 
 # Training settings
 parser = argparse.ArgumentParser(description='Stochastic BNN for MNIST MLP')
 parser.add_argument('--seed', type=int, default=1234)
-parser.add_argument('--lr', type=float, default=0.001)
-parser.add_argument('--epochs', type=int, default=1000)
+parser.add_argument('--lr-start', type=float, default=0.001)
+parser.add_argument('--lr-end', type=float, default=0.00001)
+parser.add_argument('--epochs', type=int, default=100)
 parser.add_argument('--no-shuffle', action='store_true', default=False)
-parser.add_argument('--valid-pcent', type=float, default=0.1)
-parser.add_argument('--batch_size', type=int, default=100)
-parser.add_argument('--hunits', type=int, default=1024)
+parser.add_argument('--valid-pcent', type=float, default=0.15)
+parser.add_argument('--batch_size', type=int, default=128)
+parser.add_argument('--hunits', type=int, default=32)
 parser.add_argument('--npasses', type=int, default=8)
 parser.add_argument('--momentum', type=float, default=0.1)
 parser.add_argument('--dp-hidden', type=float, default=0.5)
-parser.add_argument('--epsilon', type=float, default=1e-4)
+parser.add_argument('--epsilon', type=float, default=1e-6)
 parser.add_argument('--dpath', type=str, default="./pytorch_data/")
 parser.add_argument('--download', action='store_true', default=False)
 parser.add_argument('--no-cuda', action='store_true', default=False)
 parser.add_argument('--no-save', action='store_true', default=False)
 parser.add_argument('--log-interval', type=int, default=50)
 parser.add_argument('--check', type=str, default=None)
+parser.add_argument('--test-count', type=int, default=100)
 
 args = parser.parse_args()
 
@@ -46,6 +54,8 @@ args.cuda = not args.no_cuda and torch.cuda.is_available()
 args.shuffle = not args.no_shuffle
 args.save = not args.no_save
 
+LR_decay = (args.lr_end / args.lr_start)**(1. / args.epochs)
+np.random.seed(args.seed)
 torch.manual_seed(args.seed)
 if args.cuda:
     torch.cuda.manual_seed(args.seed)
@@ -66,7 +76,6 @@ indices = list(range(num_train))
 split = int(np.floor(args.valid_pcent * num_train))
 
 if args.shuffle:
-    np.random.seed(args.seed)
     np.random.shuffle(indices)
 
 train_idx, valid_idx = indices[split:], indices[:split]
@@ -78,15 +87,16 @@ valid_loader = torch.utils.data.DataLoader(valid_dataset, batch_size=args.batch_
 test_loader = torch.utils.data.DataLoader(test_dataset, batch_size=args.batch_size, shuffle=args.shuffle, **kwargs)
 
 
-# model = Net(28 * 28, 10, args.hunits, args.npasses, bias=True, dp_hidden=args.dp_hidden, momentum=args.momentum, epsilon=args.epsilon)
-model = Net()
+# model = Net(28 * 28, 10, args.hunits, args.npasses, bias=False, dp_hidden=args.dp_hidden, momentum=args.momentum, epsilon=args.epsilon)
+# model = Net()
+model = Net(args.npasses, momentum=args.momentum, epsilon=args.epsilon)
 if args.cuda:
     torch.cuda.set_device(0)
     model.cuda()
 
 
 criterion = nn.CrossEntropyLoss()
-optimizer = optim.Adam(model.parameters(), lr=args.lr)
+optimizer = Adam(model.parameters(), lr=args.lr_start, amsgrad=True)
 
 
 def train(epoch):
@@ -136,6 +146,7 @@ def validate(epoch):
     valid_batch_count = 0
     valid_batch_avg_loss = 0
     valid_batch_avg_count = 0
+    val_loss = 0
 
     for batch_idx, (data, target) in enumerate(valid_loader, 1):
         if args.cuda:
@@ -150,6 +161,7 @@ def validate(epoch):
 
         valid_batch_count += 1
         valid_batch_avg_loss += float(loss)
+        val_loss += float(loss)
         valid_batch_avg_count += 1
 
         if batch_idx % args.log_interval == 0:
@@ -167,11 +179,11 @@ def validate(epoch):
         ))
 
     print('\nValidation set accuracy: {}/{} ({:.4f}%)'.format(
-        correct, len(valid_loader)*args.batch_size,
-        100. * (float(correct) / (len(valid_loader)*args.batch_size))
+        correct, len(valid_loader) * args.batch_size,
+        100. * (float(correct) / (len(valid_loader) * args.batch_size))
     ))
 
-    return correct
+    return correct, val_loss
 
 
 def test(epoch):
@@ -214,42 +226,72 @@ def test(epoch):
         ))
 
     print('\nTest set accuracy: {}/{} ({:.4f}%)'.format(
-        correct, len(test_loader)*args.batch_size,
-        100. * (float(correct) / (len(test_loader)*args.batch_size))
+        correct, len(test_loader) * args.batch_size,
+        100. * (float(correct) / (len(test_loader) * args.batch_size))
     ))
 
     return correct
+
+
+def adam_set_lr(optimizer, epoch):
+    for param in optimizer.param_groups:
+        param['lr'] = args.lr_start / pow(epoch, 1.0/4.0)
 
 
 if __name__ == '__main__':
     print("Training batches:", len(train_loader))
     print("Validation batches:", len(valid_loader))
     print("Test batches:", len(test_loader), end='\n\n')
+    save_model_path = "{}-{}.mkl".format("model", int(time.time()))
 
     if args.check is not None:
         print("Loading module", args.check)
         model.load_state_dict(torch.load(args.check))
-        train(0)
-        validate(0)
-        test(0)
+
+        test_accuracy = np.zeros(args.test_count)
+        for itest in xrange(args.test_count):
+            test_accuracy[itest] = (float(test(itest)) / (len(test_loader) * args.batch_size))
+
+        # best fit of data
+        (mu, sigma) = norm.fit(test_accuracy)
+
+        # the histogram of the data
+        n, bins, patches = plt.hist(test_accuracy, 60, normed=1, facecolor='green', alpha=0.75)
+
+        # add a 'best fit' line
+        y = mlab.normpdf(bins, mu, sigma)
+        l = plt.plot(bins, y, 'r--', linewidth=2)
+
+        # plot
+        plt.xlabel('Smarts')
+        plt.ylabel('Probability')
+        plt.title(r'$\mathrm{Histogram\ of\ Test accuracy:}\ \mu=%.3f,\ \sigma=%.3f$' % (mu, sigma))
+        plt.grid(True)
+
+        plt.show()
     else:
         max_valid_correct = 0
         test_correct = 0
+        # scheduler = optim.lr_scheduler.ExponentialLR(optimizer, gamma=LR_decay)
         for epoch in range(1, args.epochs + 1):
             time_start = time.clock()
             train(epoch)
+            # scheduler.step(epoch=epoch)
+            adam_set_lr(optimizer, epoch)
             print("\n{:-<72}".format(""))
             print("Validation:\n")
-            correct = validate(epoch)
+            correct, val_loss = validate(epoch)
             if correct > max_valid_correct:
                 max_valid_correct = correct
                 print("\n{:-<72}".format(""))
                 print("Test:\n")
                 test_correct = test(epoch)
+                if args.save:
+                    torch.save(model.state_dict(), save_model_path)
             else:
                 print('\nBest Validation set accuracy: {}/{} ({:.4f}%)'.format(
-                    max_valid_correct, len(valid_loader)*args.batch_size,
-                    100. * (float(max_valid_correct) / (len(valid_loader)*args.batch_size))
+                    max_valid_correct, len(valid_loader) * args.batch_size,
+                    100. * (float(max_valid_correct) / (len(valid_loader) * args.batch_size))
                 ))
 
             time_complete = time.clock() - time_start
@@ -263,11 +305,6 @@ if __name__ == '__main__':
             print("{:=<72}\n".format(""))
 
         print('\nFinal Test set accuracy: {}/{} ({:.4f}%)'.format(
-            test_correct, len(test_loader)*args.batch_size,
-            100. * (float(test_correct) / (len(test_loader)*args.batch_size))
+            test_correct, len(test_loader) * args.batch_size,
+            100. * (float(test_correct) / (len(test_loader) * args.batch_size))
         ))
-
-        if args.save:
-            st = int(time.time())
-            save_model_path = "{}-{}.mkl".format("model", st)
-            torch.save(model.state_dict(), save_model_path)
