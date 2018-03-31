@@ -4,10 +4,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import stoch_util as sb
 import numpy as np
-
-
-# Set to true if want to use BNN. Note npasses has to be 1 though
-using_bnn = False
+from torch.nn.init import _calculate_fan_in_and_fan_out
 
 
 def binarize_(tensor, deterministic=False):
@@ -19,23 +16,28 @@ def binarize_(tensor, deterministic=False):
         tensor[1-mask] = 1
 
 
+def he_init(tensor, dist='uniform'):
+    fan_in, fan_out = _calculate_fan_in_and_fan_out(tensor)
+    n = fan_in
+
+    if dist == "uniform":
+        #
+        tensor.uniform_(-1.0, 1.0)
+        # Scale so that the final variace of this layer is 3/input_features
+        tensor.mul_(np.sqrt(3.0/n) / tensor.std())
+    else:
+        tensor.normal_(0.0, np.sqrt(3.0/n))
+    print("Init variance : {:.7f} == {:.7f}".format(tensor.var(), 3.0/n), end='\n\n')
+
+
 class BinarizedLinear(nn.Linear):
     def __init__(self, input_features, output_features, bias=False, deterministic=False):
         self.deterministic = deterministic
-        # Have the bias as a parameter to make it identitical to other Linear modules. Raise warning if used though
-        if bias:
-            print("{} : Running with no bias".format(DeprecationWarning))
-            bias = False
 
         super(BinarizedLinear, self).__init__(input_features, output_features, bias)
 
         # nn.init.xavier_uniform(self.weight.data, gain=nn.init.calculate_gain('tanh'))
-
-        # He-Modified intiailization for a uniform activation and uniform sampler
-        self.weight.data.uniform_(-1.0, 1.0)
-        # Scale so that the final variace of this layer is 3/input_features
-        self.weight.data.mul_(np.sqrt(3.0/input_features) / self.weight.data.std())
-        print("Scaling variance : ", self.weight.data.var(), 3.0/input_features)
+        he_init(self.weight.data, dist='normal')
 
         self.real_weight = self.weight.data.clone()
 
@@ -58,7 +60,8 @@ class BinarizedConv2d(nn.Conv2d):
         super(BinarizedConv2d, self).__init__(in_channels, out_channels, kernel_size, stride, padding, dilation, groups, bias)
         self.deterministic = deterministic
 
-        nn.init.xavier_normal(self.weight.data, gain=nn.init.calculate_gain('tanh'))
+        # nn.init.xavier_normal(self.weight.data, gain=nn.init.calculate_gain('tanh'))
+        he_init(self.weight.data, dist='normal')
 
         self.real_weight = self.weight.data.clone()
 
