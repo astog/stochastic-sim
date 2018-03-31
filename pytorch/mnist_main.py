@@ -9,9 +9,9 @@ from torch.autograd import Variable
 from Adam import Adam
 
 # Models
-# from sbnn_models.mlp import Net
+# from sbnn_models.ripple.mlp import Net
 # from model_archive.lenet5 import Net
-from sbnn_models.lenet5 import Net
+from sbnn_models.ripple.lenet5 import Net
 # from model_archive.mnist_mlp import Net
 
 import time
@@ -33,9 +33,9 @@ parser.add_argument('--valid-pcent', type=float, default=0.15)
 parser.add_argument('--batch_size', type=int, default=128)
 parser.add_argument('--hunits', type=int, default=32)
 parser.add_argument('--npasses', type=int, default=8)
-parser.add_argument('--momentum', type=float, default=0.1)
-parser.add_argument('--dp-hidden', type=float, default=0.5)
-parser.add_argument('--epsilon', type=float, default=1e-6)
+parser.add_argument('--dp-dense', type=float, default=0.1)
+parser.add_argument('--dp-conv', type=float, default=0.0)
+parser.add_argument('--weight-decay', type=float, default=0.0)
 parser.add_argument('--dpath', type=str, default="./pytorch_data/")
 parser.add_argument('--download', action='store_true', default=False)
 parser.add_argument('--no-cuda', action='store_true', default=False)
@@ -63,7 +63,7 @@ if args.cuda:
 # Dataset transformations
 transform = transforms.Compose([
     transforms.ToTensor(),
-    transforms.Normalize((0.1307,), (0.3081,))
+    transforms.Normalize((0.5,), (0.5,))
 ])
 # Cuda dataset arguments
 kwargs = {'num_workers': 1, 'pin_memory': True} if args.cuda else {}
@@ -87,16 +87,16 @@ valid_loader = torch.utils.data.DataLoader(valid_dataset, batch_size=args.batch_
 test_loader = torch.utils.data.DataLoader(test_dataset, batch_size=args.batch_size, shuffle=args.shuffle, **kwargs)
 
 
-# model = Net(28 * 28, 10, args.hunits, args.npasses, bias=False, dp_hidden=args.dp_hidden, momentum=args.momentum, epsilon=args.epsilon)
+# model = Net(28 * 28, 10, args.hunits, args.npasses, bias=False, dp_dense=args.dp_dense)
 # model = Net()
-model = Net(args.npasses, momentum=args.momentum, epsilon=args.epsilon)
+model = Net(args.npasses, bias=False)
 if args.cuda:
     torch.cuda.set_device(0)
     model.cuda()
 
 
 criterion = nn.CrossEntropyLoss()
-optimizer = Adam(model.parameters(), lr=args.lr_start, amsgrad=True)
+optimizer = Adam(model.parameters(), weight_decay=args.weight_decay, lr=args.lr_start, amsgrad=True)
 
 
 def train(epoch):
@@ -175,7 +175,7 @@ def validate(epoch):
     if valid_batch_avg_count > 0:
         print("Epoch: {: <6}\tBatches: {: 7.2f}%\tAverage Batch Loss: {:.6e}".format(
             epoch, 100. * valid_batch_count / len(valid_loader),
-            float(loss) / valid_batch_avg_count
+            valid_batch_avg_loss / valid_batch_avg_count
         ))
 
     print('\nValidation set accuracy: {}/{} ({:.4f}%)'.format(
@@ -222,7 +222,7 @@ def test(epoch):
     if test_batch_avg_count > 0:
         print("Epoch: {: <6}\tBatches: {: 7.2f}%\tAverage Batch Loss: {:.6e}".format(
             epoch, 100. * test_batch_count / len(test_loader),
-            float(loss) / test_batch_avg_count
+            test_batch_avg_loss / test_batch_avg_count
         ))
 
     print('\nTest set accuracy: {}/{} ({:.4f}%)'.format(
@@ -263,7 +263,7 @@ if __name__ == '__main__':
         l = plt.plot(bins, y, 'r--', linewidth=2)
 
         # plot
-        plt.xlabel('Smarts')
+        plt.xlabel('Test accuracy')
         plt.ylabel('Probability')
         plt.title(r'$\mathrm{Histogram\ of\ Test accuracy:}\ \mu=%.3f,\ \sigma=%.3f$' % (mu, sigma))
         plt.grid(True)

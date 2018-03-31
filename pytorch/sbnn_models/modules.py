@@ -3,7 +3,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import stoch_util as sb
-import warnings
+import numpy as np
 
 
 # Set to true if want to use BNN. Note npasses has to be 1 though
@@ -23,13 +23,19 @@ class BinarizedLinear(nn.Linear):
     def __init__(self, input_features, output_features, bias=False, deterministic=False):
         self.deterministic = deterministic
         # Have the bias as a parameter to make it identitical to other Linear modules. Raise warning if used though
-        # if bias:
-        #     warnings.warn("Bias is deprecated. Running with no bias", DeprecationWarning)
-        #     bias = False
+        if bias:
+            print("{} : Running with no bias".format(DeprecationWarning))
+            bias = False
 
         super(BinarizedLinear, self).__init__(input_features, output_features, bias)
 
-        nn.init.xavier_uniform(self.weight.data, gain=nn.init.calculate_gain('tanh'))
+        # nn.init.xavier_uniform(self.weight.data, gain=nn.init.calculate_gain('tanh'))
+
+        # He-Modified intiailization for a uniform activation and uniform sampler
+        self.weight.data.uniform_(-1.0, 1.0)
+        # Scale so that the final variace of this layer is 3/input_features
+        self.weight.data.mul_(np.sqrt(3.0/input_features) / self.weight.data.std())
+        print("Scaling variance : ", self.weight.data.var(), 3.0/input_features)
 
         self.real_weight = self.weight.data.clone()
 
@@ -52,7 +58,7 @@ class BinarizedConv2d(nn.Conv2d):
         super(BinarizedConv2d, self).__init__(in_channels, out_channels, kernel_size, stride, padding, dilation, groups, bias)
         self.deterministic = deterministic
 
-        nn.init.xavier_uniform(self.weight.data, gain=nn.init.calculate_gain('tanh'))
+        nn.init.xavier_normal(self.weight.data, gain=nn.init.calculate_gain('tanh'))
 
         self.real_weight = self.weight.data.clone()
 

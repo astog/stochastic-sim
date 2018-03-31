@@ -1,37 +1,35 @@
 from __future__ import print_function
 import torch
 import torch.nn as nn
-from modules import BinarizedLinear, BinarizedHardTanH
+from ..modules import BinarizedLinear, BinarizedHardTanH
 
 
 class Net(nn.Module):
-    def __init__(self, input_features, output_features, hidden_units, npasses, bias=False, dp_in=0.2, dp_hidden=0.5, momentum=0.1, epsilon=1e-6):
+    def __init__(self, input_features, output_features, hidden_units, npasses, bias=False, dp_dense=0.5):
         super(Net, self).__init__()
         self.npasses = npasses
         self.input_features = input_features
-        self.dropin = nn.Dropout(dp_in)
 
         self.dense1 = BinarizedLinear(input_features, hidden_units, bias=bias, deterministic=False)
-        self.bn1 = nn.BatchNorm1d(hidden_units, epsilon, momentum)
-        self.drophidden1 = nn.Dropout(dp_hidden)
+        self.bn1 = nn.BatchNorm1d(hidden_units)
+        self.drophidden1 = nn.Dropout(dp_dense)
 
         self.dense2 = BinarizedLinear(hidden_units, hidden_units, bias=bias, deterministic=False)
-        self.bn2 = nn.BatchNorm1d(hidden_units, epsilon, momentum)
-        self.drophidden2 = nn.Dropout(dp_hidden)
+        self.bn2 = nn.BatchNorm1d(hidden_units)
+        self.drophidden2 = nn.Dropout(dp_dense)
 
         self.dense3 = BinarizedLinear(hidden_units, hidden_units, bias=bias, deterministic=False)
-        self.bn3 = nn.BatchNorm1d(hidden_units, epsilon, momentum)
-        self.drophidden3 = nn.Dropout(dp_hidden)
+        self.bn3 = nn.BatchNorm1d(hidden_units)
+        self.drophidden3 = nn.Dropout(dp_dense)
 
         self.dense4 = BinarizedLinear(hidden_units, output_features, bias=bias, deterministic=False)
-        self.bn4 = nn.BatchNorm1d(output_features, epsilon, momentum)
+        self.bn4 = nn.BatchNorm1d(output_features)
 
-        self.bhtanh = BinarizedHardTanH()
+        self.bhtanh = BinarizedHardTanH(deterministic=True)
 
     def fpass(self, x):
         # Input layer
         x = x.view(-1, self.input_features)
-        x = self.dropin(x)
 
         # 1st hidden layer
         x = self.dense1(x)

@@ -2,28 +2,28 @@ from __future__ import print_function
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from modules import BinarizedHardTanH, BinarizedConv2d, BinarizedLinear
+from ..modules import BinarizedHardTanH, BinarizedConv2d, BinarizedLinear
 
 
 class Net(nn.Module):
-    def __init__(self, npasses, momentum=0.1, epsilon=1e-6):
+    def __init__(self, npasses, bias=False):
         super(Net, self).__init__()
         self.npasses = npasses
 
-        self.conv1 = BinarizedConv2d(1, 6, 5, deterministic=False, bias=True)
-        self.bn1 = nn.BatchNorm2d(6, momentum=momentum, eps=epsilon)
+        self.conv1 = BinarizedConv2d(1, 6, 5, deterministic=False, bias=bias)
+        self.bn1 = nn.BatchNorm2d(6)
 
-        self.conv2 = BinarizedConv2d(6, 16, 5, deterministic=False, bias=True)
-        self.bn2 = nn.BatchNorm2d(16, momentum=momentum, eps=epsilon)
+        self.conv2 = BinarizedConv2d(6, 16, 5, deterministic=False, bias=bias)
+        self.bn2 = nn.BatchNorm2d(16)
 
-        self.fc1 = BinarizedLinear(4*4*16, 120, deterministic=False, bias=True)
-        self.bn3 = nn.BatchNorm1d(120, momentum=momentum, eps=epsilon)
+        self.fc1 = BinarizedLinear(4*4*16, 120, deterministic=False, bias=bias)
+        self.bn3 = nn.BatchNorm1d(120)
 
-        self.fc2 = BinarizedLinear(120, 84, deterministic=False, bias=True)
-        self.bn4 = nn.BatchNorm1d(84, momentum=momentum, eps=epsilon)
+        self.fc2 = BinarizedLinear(120, 84, deterministic=False, bias=bias)
+        self.bn4 = nn.BatchNorm1d(84)
 
-        self.fc3 = BinarizedLinear(84, 10, deterministic=False, bias=True)
-        self.bn5 = nn.BatchNorm1d(10, momentum=momentum, eps=epsilon)
+        self.fc3 = BinarizedLinear(84, 10, deterministic=False, bias=bias)
+        self.bn5 = nn.BatchNorm1d(10)
 
         self.htanh = BinarizedHardTanH(deterministic=True)
 
