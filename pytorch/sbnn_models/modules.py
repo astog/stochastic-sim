@@ -37,7 +37,7 @@ class BinarizedLinear(nn.Linear):
         super(BinarizedLinear, self).__init__(input_features, output_features, bias)
 
         # nn.init.xavier_uniform(self.weight.data, gain=nn.init.calculate_gain('tanh'))
-        he_init(self.weight.data, dist='normal')
+        he_init(self.weight.data, dist='uniform')
 
         self.real_weight = self.weight.data.clone()
 
@@ -61,7 +61,7 @@ class BinarizedConv2d(nn.Conv2d):
         self.deterministic = deterministic
 
         # nn.init.xavier_normal(self.weight.data, gain=nn.init.calculate_gain('tanh'))
-        he_init(self.weight.data, dist='normal')
+        he_init(self.weight.data, dist='uniform')
 
         self.real_weight = self.weight.data.clone()
 
@@ -116,3 +116,12 @@ class BinarizedHardTanH(nn.Module):
 
     def forward(self, input):
         return STHardTanH.apply(input, self.deterministic)
+
+
+class StochasticTanH(nn.Module):
+    def __init__(self):
+        super(StochasticTanH, self).__init__()
+
+    def forward(self, input):
+        # TODO: Implement stochastic version for tanh, currently a mathematical tanh is very close approximation to it
+        return F.tanh(input)

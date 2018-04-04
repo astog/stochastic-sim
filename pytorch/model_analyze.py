@@ -30,15 +30,12 @@ if __name__ == '__main__':
         (mu, sigma) = norm.fit(data)
 
         # the histogram of the data
-        n, bins, patches = plt.hist(data, 'auto', normed=1, facecolor='green', alpha=0.75)
-
-        # add a 'best fit' line
-        y = mlab.normpdf(bins, mu, sigma)
-        l = plt.plot(bins, y, 'r--', linewidth=2)
+        # bin_weights = np.ones_like(data)/float(len(data))
+        n, bins, patches = plt.hist(data, 'auto', facecolor='green', alpha=0.75)
 
         # plot
         plt.xlabel('Value')
-        plt.ylabel('Normed Count')
+        plt.ylabel('Count')
         plt.title(r'$\ \mu=%.3f,\ \sigma=%.3f$' % (mu, sigma))
         plt.grid(True)
 

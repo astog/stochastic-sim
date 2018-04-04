@@ -4,10 +4,12 @@ import torch.nn as nn
 from ..modules import BinarizedLinear, BinarizedHardTanH
 
 using_bnn = False
+if using_bnn:
+    print("Ripple Network modified to be BNN\n")
 
 
 class Net(nn.Module):
-    def __init__(self, input_features, output_features, hidden_units, npasses, bias=False, dp_dense=0.5):
+    def __init__(self, input_features, output_features, hidden_units, npasses, bias=False, dp_dense=0.1):
         super(Net, self).__init__()
         self.npasses = npasses
         self.input_features = input_features

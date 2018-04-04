@@ -9,10 +9,11 @@ from torch.autograd import Variable
 from Adam import Adam
 
 # Models
-# from sbnn_models.ripple.mlp import Net
-# from model_archive.lenet5 import Net
-from sbnn_models.ripple.lenet5 import Net
 # from model_archive.mnist_mlp import Net
+# from model_archive.lenet import Net
+# from sbnn_models.ripple.mlp import Net
+from sbnn_models.ripple.lenet import Net
+# from sbnn_models.wave.lenet import Net
 
 import time
 import datetime
@@ -25,13 +26,12 @@ import matplotlib.pyplot as plt
 # Training settings
 parser = argparse.ArgumentParser(description='Stochastic BNN for MNIST MLP')
 parser.add_argument('--seed', type=int, default=1234)
-parser.add_argument('--lr-start', type=float, default=0.001)
-parser.add_argument('--lr-end', type=float, default=0.00001)
+parser.add_argument('--lr', type=float, default=0.001)
 parser.add_argument('--epochs', type=int, default=100)
 parser.add_argument('--no-shuffle', action='store_true', default=False)
-parser.add_argument('--valid-pcent', type=float, default=0.15)
-parser.add_argument('--batch_size', type=int, default=128)
-parser.add_argument('--hunits', type=int, default=32)
+parser.add_argument('--valid-pcent', type=float, default=0.2)
+parser.add_argument('--batch-size', type=int, default=128)
+parser.add_argument('--include-bias', action='store_true', default=False)
 parser.add_argument('--npasses', type=int, default=8)
 parser.add_argument('--dp-dense', type=float, default=0.1)
 parser.add_argument('--dp-conv', type=float, default=0.0)
@@ -40,6 +40,7 @@ parser.add_argument('--dpath', type=str, default="./pytorch_data/")
 parser.add_argument('--download', action='store_true', default=False)
 parser.add_argument('--no-cuda', action='store_true', default=False)
 parser.add_argument('--no-save', action='store_true', default=False)
+parser.add_argument('--save-path', type=str, default=None)
 parser.add_argument('--log-interval', type=int, default=50)
 parser.add_argument('--check', type=str, default=None)
 parser.add_argument('--test-count', type=int, default=100)
@@ -54,22 +55,32 @@ args.cuda = not args.no_cuda and torch.cuda.is_available()
 args.shuffle = not args.no_shuffle
 args.save = not args.no_save
 
-LR_decay = (args.lr_end / args.lr_start)**(1. / args.epochs)
+if args.save_path is None:
+    args.save_path = "{}-{}.mkl".format("model", int(time.time()))
+
 np.random.seed(args.seed)
 torch.manual_seed(args.seed)
 if args.cuda:
     torch.cuda.manual_seed(args.seed)
 
 # Dataset transformations
-transform = transforms.Compose([
+transform_train = transforms.Compose([
+    transforms.RandomCrop(32, padding=4),
+    transforms.RandomHorizontalFlip(),
     transforms.ToTensor(),
-    transforms.Normalize((0.5,), (0.5,))
+    transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
 ])
+
+transform_test = transforms.Compose([
+    transforms.ToTensor(),
+    transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
+])
+
 # Cuda dataset arguments
 kwargs = {'num_workers': 1, 'pin_memory': True} if args.cuda else {}
-train_dataset = datasets.MNIST(args.dpath, train=True, download=args.download, transform=transform)
-valid_dataset = datasets.MNIST(args.dpath, train=True, download=args.download, transform=transform)
-test_dataset = datasets.MNIST(args.dpath, train=False, download=args.download, transform=transform)
+train_dataset = datasets.CIFAR10(args.dpath, train=True, download=args.download, transform=transform_train)
+valid_dataset = datasets.CIFAR10(args.dpath, train=True, download=args.download, transform=transform_test)
+test_dataset = datasets.CIFAR10(args.dpath, train=False, download=args.download, transform=transform_test)
 
 num_train = len(train_dataset)
 indices = list(range(num_train))
@@ -88,15 +99,20 @@ test_loader = torch.utils.data.DataLoader(test_dataset, batch_size=args.batch_si
 
 
 # model = Net(28 * 28, 10, args.hunits, args.npasses, bias=False, dp_dense=args.dp_dense)
-# model = Net()
-model = Net(args.npasses, bias=False)
+model = Net(3, 10, args.npasses, bias=args.include_bias)
+# model = Net(3, 10, bias=args.include_bias)
 if args.cuda:
     torch.cuda.set_device(0)
     model.cuda()
 
 
 criterion = nn.CrossEntropyLoss()
-optimizer = Adam(model.parameters(), weight_decay=args.weight_decay, lr=args.lr_start, amsgrad=True)
+optimizer = Adam(
+    model.parameters(),
+    lr=args.lr,
+    amsgrad=False
+    #, weight_decay=args.weight_decay
+)
 
 
 def train(epoch):
@@ -107,6 +123,7 @@ def train(epoch):
     train_batch_count = 0
     train_batch_avg_loss = 0
     train_batch_avg_count = 0
+    train_loss = 0
 
     for batch_idx, (data, target) in enumerate(train_loader, 1):
         if args.cuda:
@@ -115,7 +132,11 @@ def train(epoch):
 
         output = model(data)
 
-        loss = criterion(output, target)
+        # Calculate loss
+        loss = criterion(output, target) + (model.get_regul_loss('pow4') * args.weight_decay)
+
+        # loss = criterion(output, target)
+
         model.backward(loss, optimizer)
 
         train_batch_count += 1
@@ -127,14 +148,18 @@ def train(epoch):
                 epoch, 100. * train_batch_count / len(train_loader),
                 train_batch_avg_loss / train_batch_avg_count
             ))
+            train_loss += train_batch_avg_loss
             train_batch_avg_loss = 0
             train_batch_avg_count = 0
 
     if train_batch_avg_count > 0:
+        train_loss += train_batch_avg_loss
         print("Epoch: {: <6}\tBatches: {: 7.2f}%\tAverage Batch Loss: {:.6e}".format(
             epoch, 100. * train_batch_count / len(train_loader),
             train_batch_avg_loss / train_batch_avg_count
         ))
+    print("=====> TOTAL TRAINING LOSS:", train_loss)
+    return train_loss
 
 
 def validate(epoch):
@@ -161,7 +186,6 @@ def validate(epoch):
 
         valid_batch_count += 1
         valid_batch_avg_loss += float(loss)
-        val_loss += float(loss)
         valid_batch_avg_count += 1
 
         if batch_idx % args.log_interval == 0:
@@ -169,10 +193,12 @@ def validate(epoch):
                 epoch, 100. * valid_batch_count / len(valid_loader),
                 valid_batch_avg_loss / valid_batch_avg_count
             ))
+            val_loss += valid_batch_avg_loss
             valid_batch_avg_loss = 0
             valid_batch_avg_count = 0
 
     if valid_batch_avg_count > 0:
+        val_loss += valid_batch_avg_loss
         print("Epoch: {: <6}\tBatches: {: 7.2f}%\tAverage Batch Loss: {:.6e}".format(
             epoch, 100. * valid_batch_count / len(valid_loader),
             valid_batch_avg_loss / valid_batch_avg_count
@@ -183,6 +209,7 @@ def validate(epoch):
         100. * (float(correct) / (len(valid_loader) * args.batch_size))
     ))
 
+    print("=====> TOTAL VALIDATION LOSS:", val_loss)
     return correct, val_loss
 
 
@@ -233,11 +260,6 @@ def test(epoch):
     return correct
 
 
-def adam_set_lr(optimizer, epoch):
-    for param in optimizer.param_groups:
-        param['lr'] = args.lr_start / pow(epoch, 1.0/4.0)
-
-
 if __name__ == '__main__':
     print("Training batches:", len(train_loader))
     print("Validation batches:", len(valid_loader))
@@ -272,12 +294,15 @@ if __name__ == '__main__':
     else:
         max_valid_correct = 0
         test_correct = 0
-        # scheduler = optim.lr_scheduler.ExponentialLR(optimizer, gamma=LR_decay)
+
+        scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=5, verbose=True, eps=1e-7)
+
         for epoch in range(1, args.epochs + 1):
             time_start = time.clock()
-            train(epoch)
-            # scheduler.step(epoch=epoch)
-            adam_set_lr(optimizer, epoch)
+
+            train_loss = train(epoch)
+            scheduler.step(train_loss, epoch=epoch)
+
             print("\n{:-<72}".format(""))
             print("Validation:\n")
             correct, val_loss = validate(epoch)
@@ -287,7 +312,7 @@ if __name__ == '__main__':
                 print("Test:\n")
                 test_correct = test(epoch)
                 if args.save:
-                    torch.save(model.state_dict(), save_model_path)
+                    torch.save(model.state_dict(), args.save_path)
             else:
                 print('\nBest Validation set accuracy: {}/{} ({:.4f}%)'.format(
                     max_valid_correct, len(valid_loader) * args.batch_size,
