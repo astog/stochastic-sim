@@ -9,11 +9,12 @@ from torch.autograd import Variable
 from Adam import Adam
 
 # Models
-# from model_archive.mnist_mlp import Net
+# from model_archive.mlp import Net
 # from model_archive.lenet import Net
 # from sbnn_models.ripple.mlp import Net
-from sbnn_models.ripple.lenet import Net
-# from sbnn_models.wave.lenet import Net
+# from sbnn_models.ripple.lenet import Net
+# from sbnn_models.wave.mlp import Net
+from sbnn_models.wave.lenet import Net
 
 import time
 import datetime
@@ -110,8 +111,8 @@ criterion = nn.CrossEntropyLoss()
 optimizer = Adam(
     model.parameters(),
     lr=args.lr,
-    amsgrad=False
-    #, weight_decay=args.weight_decay
+    amsgrad=False,
+    weight_decay=args.weight_decay
 )
 
 
@@ -133,9 +134,8 @@ def train(epoch):
         output = model(data)
 
         # Calculate loss
-        loss = criterion(output, target) + (model.get_regul_loss('pow4') * args.weight_decay)
-
-        # loss = criterion(output, target)
+        # loss = criterion(output, target) + (model.get_regul_loss('pow4') * args.weight_decay)
+        loss = criterion(output, target)
 
         model.backward(loss, optimizer)
 
