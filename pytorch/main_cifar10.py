@@ -10,11 +10,11 @@ from dataloader import KFoldDataset
 
 # Models
 # from model_archive.mlp import Net
-# from model_archive.lenet import Net
+from model_archive.lenet import Net
 # from sbnn_models.ripple.mlp import Net
 # from sbnn_models.ripple.lenet import Net
 # from sbnn_models.wave.mlp import Net
-from sbnn_models.wave.lenet import Net
+# from sbnn_models.wave.lenet import Net
 
 import time
 import datetime
@@ -28,13 +28,13 @@ import matplotlib.pyplot as plt
 parser = argparse.ArgumentParser(description='Main script for CIFAR10 dataset')
 parser.add_argument('--seed', type=int, default=1234)
 parser.add_argument('--lr', type=float, default=0.001)
-parser.add_argument('--epochs', type=int, default=100)
+parser.add_argument('--epochs', type=int, default=50)
 parser.add_argument('--no-shuffle', action='store_true', default=False)
 parser.add_argument('--batch-size', type=int, default=128)
 parser.add_argument('--hunits', type=int, default=32)
 parser.add_argument('--include-bias', action='store_true', default=False)
 parser.add_argument('--npasses', type=int, default=8)
-parser.add_argument('--kfolds', type=int, default=3)
+parser.add_argument('--kfolds', type=int, default=5)
 parser.add_argument('--dp-dense', type=float, default=0.1)
 parser.add_argument('--dp-conv', type=float, default=0.0)
 parser.add_argument('--weight-decay', type=float, default=0.0)
@@ -86,20 +86,21 @@ test_dataset = datasets.CIFAR10(args.dpath, train=False, download=args.download,
 test_loader = torch.utils.data.DataLoader(test_dataset, batch_size=args.batch_size, shuffle=args.shuffle, **kwargs)
 
 # model = Net(28 * 28, 10, args.hunits, args.npasses, bias=False, dp_dense=args.dp_dense)
-model = Net(3, 10, args.npasses, bias=args.include_bias)
-# model = Net(3, 10, bias=args.include_bias)
+# model = Net(3, 10, args.npasses, bias=args.include_bias)
+model = Net(3, 10, bias=args.include_bias)
+
 if args.cuda:
     torch.cuda.set_device(0)
     model.cuda()
 
 criterion = nn.CrossEntropyLoss()
+# optimizer = optim.SGD(model.parameters(), momentum=0.9, lr=args.lr, nesterov=True, weight_decay=args.weight_decay)
 optimizer = Adam(
     model.parameters(),
     lr=args.lr,
     amsgrad=False,
     weight_decay=args.weight_decay
 )
-# optimizer = optim.SGD(model.parameters(), momentum=0.9, lr=args.lr, nesterov=True, weight_decay=args.weight_decay)
 
 
 def train(epoch):
@@ -257,7 +258,7 @@ if __name__ == '__main__':
         scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.75, patience=10, verbose=True, eps=1e-7)
 
         for epoch in range(1, args.epochs + 1):
-            time_start = time.clock()
+            time_start = datetime.datetime.now()
 
             train_loss, val_loss = train(epoch)
             scheduler.step(train_loss, epoch=epoch)
@@ -269,7 +270,8 @@ if __name__ == '__main__':
             else:
                 print("Best validation loss was:", min_val_loss)
 
-            time_complete = time.clock() - time_start
+            time_complete = datetime.datetime.now() - time_start
+            time_complete = time_complete.total_seconds()
             print("\nTime to complete epoch {} == {} sec(s)".format(
                 epoch, time_complete
             ))

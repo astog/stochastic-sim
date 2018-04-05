@@ -251,7 +251,7 @@ if __name__ == '__main__':
         scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.75, patience=10, verbose=True, eps=1e-7)
 
         for epoch in range(1, args.epochs + 1):
-            time_start = time.clock()
+            time_start = datetime.datetime.now()
 
             train_loss, val_loss = train(epoch)
             scheduler.step(train_loss, epoch=epoch)
@@ -263,7 +263,8 @@ if __name__ == '__main__':
             else:
                 print("Best validation loss was:", min_val_loss)
 
-            time_complete = time.clock() - time_start
+            time_complete = datetime.datetime.now() - time_start
+            time_complete = time_complete.total_seconds()
             print("\nTime to complete epoch {} == {} sec(s)".format(
                 epoch, time_complete
             ))
