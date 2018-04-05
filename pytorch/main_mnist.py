@@ -261,7 +261,7 @@ if __name__ == '__main__':
                 if args.save:
                     torch.save(model.state_dict(), args.save_path)
             else:
-                print("Best validation loss was:", min_val_loss)
+                print("Best validation loss was {:1.5e}, got {:1.5e}", min_val_loss, val_loss)
 
             time_complete = datetime.datetime.now() - time_start
             time_complete = time_complete.total_seconds()
