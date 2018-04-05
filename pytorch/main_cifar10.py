@@ -4,9 +4,9 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from torchvision import datasets, transforms
-from torch.utils.data.sampler import SubsetRandomSampler
 from torch.autograd import Variable
 from Adam import Adam
+from dataloader import KFoldDataset
 
 # Models
 # from model_archive.mlp import Net
@@ -25,15 +25,16 @@ import matplotlib.mlab as mlab
 import matplotlib.pyplot as plt
 
 # Training settings
-parser = argparse.ArgumentParser(description='Stochastic BNN for MNIST MLP')
+parser = argparse.ArgumentParser(description='Main script for CIFAR10 dataset')
 parser.add_argument('--seed', type=int, default=1234)
 parser.add_argument('--lr', type=float, default=0.001)
 parser.add_argument('--epochs', type=int, default=100)
 parser.add_argument('--no-shuffle', action='store_true', default=False)
-parser.add_argument('--valid-pcent', type=float, default=0.2)
 parser.add_argument('--batch-size', type=int, default=128)
+parser.add_argument('--hunits', type=int, default=32)
 parser.add_argument('--include-bias', action='store_true', default=False)
 parser.add_argument('--npasses', type=int, default=8)
+parser.add_argument('--kfolds', type=int, default=3)
 parser.add_argument('--dp-dense', type=float, default=0.1)
 parser.add_argument('--dp-conv', type=float, default=0.0)
 parser.add_argument('--weight-decay', type=float, default=0.0)
@@ -42,7 +43,7 @@ parser.add_argument('--download', action='store_true', default=False)
 parser.add_argument('--no-cuda', action='store_true', default=False)
 parser.add_argument('--no-save', action='store_true', default=False)
 parser.add_argument('--save-path', type=str, default=None)
-parser.add_argument('--log-interval', type=int, default=50)
+parser.add_argument('--log-interval', type=int, default=10)
 parser.add_argument('--check', type=str, default=None)
 parser.add_argument('--test-count', type=int, default=100)
 
@@ -80,24 +81,9 @@ transform_test = transforms.Compose([
 # Cuda dataset arguments
 kwargs = {'num_workers': 1, 'pin_memory': True} if args.cuda else {}
 train_dataset = datasets.CIFAR10(args.dpath, train=True, download=args.download, transform=transform_train)
-valid_dataset = datasets.CIFAR10(args.dpath, train=True, download=args.download, transform=transform_test)
 test_dataset = datasets.CIFAR10(args.dpath, train=False, download=args.download, transform=transform_test)
 
-num_train = len(train_dataset)
-indices = list(range(num_train))
-split = int(np.floor(args.valid_pcent * num_train))
-
-if args.shuffle:
-    np.random.shuffle(indices)
-
-train_idx, valid_idx = indices[split:], indices[:split]
-train_sampler = SubsetRandomSampler(train_idx)
-valid_sampler = SubsetRandomSampler(valid_idx)
-
-train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=args.batch_size, sampler=train_sampler, **kwargs)
-valid_loader = torch.utils.data.DataLoader(valid_dataset, batch_size=args.batch_size, sampler=valid_sampler, **kwargs)
 test_loader = torch.utils.data.DataLoader(test_dataset, batch_size=args.batch_size, shuffle=args.shuffle, **kwargs)
-
 
 # model = Net(28 * 28, 10, args.hunits, args.npasses, bias=False, dp_dense=args.dp_dense)
 model = Net(3, 10, args.npasses, bias=args.include_bias)
@@ -106,7 +92,6 @@ if args.cuda:
     torch.cuda.set_device(0)
     model.cuda()
 
-
 criterion = nn.CrossEntropyLoss()
 optimizer = Adam(
     model.parameters(),
@@ -114,103 +99,96 @@ optimizer = Adam(
     amsgrad=False,
     weight_decay=args.weight_decay
 )
+# optimizer = optim.SGD(model.parameters(), momentum=0.9, lr=args.lr, nesterov=True, weight_decay=args.weight_decay)
 
 
 def train(epoch):
+    # Initialize training dataset with folds
+    kfold_dataset = KFoldDataset(train_dataset, args.kfolds)
+
+    total_train_loss = 0.0
+    total_val_loss = 0.0
+    total_val_correct = 0
+
+    # Go through all folds
+    for ifold in xrange(args.kfolds):
+        print("({}, {})".format(epoch, ifold+1))
+
+        # Get randomized subset
+        train_set, val_set = kfold_dataset.get_datasets(ifold)
+
+        # Initialize data loaders
+        train_loader = torch.utils.data.DataLoader(train_set, batch_size=args.batch_size, shuffle=args.shuffle, **kwargs)
+        val_loader = torch.utils.data.DataLoader(val_set, batch_size=args.batch_size, shuffle=args.shuffle, **kwargs)
+
+        print("| Training")
+        total_train_loss += do_train(train_loader, epoch, ifold)
+        print("| Validating")
+        val_loss, val_correct = do_val(val_loader, epoch, ifold)
+        total_val_loss += val_loss
+        total_val_correct += val_correct
+
+    print('Validation accuracy: {}/{} ({:.4f}%)\n'.format(
+        total_val_correct, len(train_dataset),
+        (100. * total_val_correct) / len(train_dataset)
+    ))
+
+    return total_train_loss / args.kfolds, total_val_loss / args.kfolds
+
+
+def do_train(dataloader, epoch, ifold):
     # Initialize batchnorm and dropout layers for training
     model.train()
 
     # Logging variables
-    train_batch_count = 0
-    train_batch_avg_loss = 0
-    train_batch_avg_count = 0
-    train_loss = 0
+    total_loss = 0
 
-    for batch_idx, (data, target) in enumerate(train_loader, 1):
+    for batch_idx, (data, target) in enumerate(dataloader, 1):
         if args.cuda:
             data, target = data.cuda(), target.cuda()
         data, target = Variable(data), Variable(target)
 
         output = model(data)
 
-        # Calculate loss
-        # loss = criterion(output, target) + (model.get_regul_loss('pow4') * args.weight_decay)
         loss = criterion(output, target)
+        total_loss += loss.data[0]
 
         model.backward(loss, optimizer)
 
-        train_batch_count += 1
-        train_batch_avg_loss += float(loss)
-        train_batch_avg_count += 1
-
         if batch_idx % args.log_interval == 0:
-            print("Epoch: {: <6}\tBatches: {: 7.2f}%\tAverage Batch Loss: {:.6e}".format(
-                epoch, 100. * train_batch_count / len(train_loader),
-                train_batch_avg_loss / train_batch_avg_count
-            ))
-            train_loss += train_batch_avg_loss
-            train_batch_avg_loss = 0
-            train_batch_avg_count = 0
+            print("| {:3.4f}%\tLoss: {:1.5e}".format(100. * batch_idx / len(dataloader), total_loss), end='\r')
 
-    if train_batch_avg_count > 0:
-        train_loss += train_batch_avg_loss
-        print("Epoch: {: <6}\tBatches: {: 7.2f}%\tAverage Batch Loss: {:.6e}".format(
-            epoch, 100. * train_batch_count / len(train_loader),
-            train_batch_avg_loss / train_batch_avg_count
-        ))
-    print("=====> TOTAL TRAINING LOSS:", train_loss)
-    return train_loss
+    print("| {:3.4f}%\tLoss: {:1.5e}".format(100., total_loss))
+    return total_loss
 
 
-def validate(epoch):
+def do_val(dataloader, epoch, ifold):
     # Initialize batchnorm and dropout layers for testing
-    model.eval()
+    model.train()
 
-    # Logging variables
+    # Logging variabls
+    total_loss = 0
     correct = 0
-    valid_batch_count = 0
-    valid_batch_avg_loss = 0
-    valid_batch_avg_count = 0
-    val_loss = 0
 
-    for batch_idx, (data, target) in enumerate(valid_loader, 1):
+    for batch_idx, (data, target) in enumerate(dataloader, 1):
         if args.cuda:
             data, target = data.cuda(), target.cuda()
         data, target = Variable(data, volatile=True), Variable(target)
 
         output = model(data)
+
         loss = criterion(output, target).data[0]  # sum up batch loss
+        total_loss += loss
 
         pred = output.data.max(1, keepdim=True)[1]  # get the index of the max log-probability
         correct += pred.eq(target.data.view_as(pred)).cpu().sum()
 
-        valid_batch_count += 1
-        valid_batch_avg_loss += float(loss)
-        valid_batch_avg_count += 1
-
         if batch_idx % args.log_interval == 0:
-            print("Epoch: {: <6}\tBatches: {: 7.2f}%\tAverage Batch Loss: {:.6e}".format(
-                epoch, 100. * valid_batch_count / len(valid_loader),
-                valid_batch_avg_loss / valid_batch_avg_count
-            ))
-            val_loss += valid_batch_avg_loss
-            valid_batch_avg_loss = 0
-            valid_batch_avg_count = 0
+            print("| {:3.4f}%\tLoss: {:1.5e}".format(100. * batch_idx / len(dataloader), total_loss), end='\r')
 
-    if valid_batch_avg_count > 0:
-        val_loss += valid_batch_avg_loss
-        print("Epoch: {: <6}\tBatches: {: 7.2f}%\tAverage Batch Loss: {:.6e}".format(
-            epoch, 100. * valid_batch_count / len(valid_loader),
-            valid_batch_avg_loss / valid_batch_avg_count
-        ))
+    print("| {:3.4f}%\tLoss: {:1.5e}".format(100., total_loss), end='\n\n')
 
-    print('\nValidation set accuracy: {}/{} ({:.4f}%)'.format(
-        correct, len(valid_loader) * args.batch_size,
-        100. * (float(correct) / (len(valid_loader) * args.batch_size))
-    ))
-
-    print("=====> TOTAL VALIDATION LOSS:", val_loss)
-    return correct, val_loss
+    return total_loss, correct
 
 
 def test(epoch):
@@ -219,53 +197,32 @@ def test(epoch):
 
     # Logging variables
     correct = 0
-    test_batch_count = 0
-    test_batch_avg_loss = 0
-    test_batch_avg_count = 0
 
+    print("Testing")
     for batch_idx, (data, target) in enumerate(test_loader, 1):
         if args.cuda:
             data, target = data.cuda(), target.cuda()
-        data, target = Variable(data, volatile=True), Variable(target)
+        data = Variable(data, volatile=True)
 
         output = model(data)
-        loss = criterion(output, target).data[0]  # sum up batch loss
 
         pred = output.data.max(1, keepdim=True)[1]  # get the index of the max log-probability
-        correct += pred.eq(target.data.view_as(pred)).cpu().sum()
-
-        test_batch_count += 1
-        test_batch_avg_loss += float(loss)
-        test_batch_avg_count += 1
+        correct += pred.eq(target.view_as(pred)).cpu().sum()
 
         if batch_idx % args.log_interval == 0:
-            print("Epoch: {: <6}\tBatches: {: 7.2f}%\tAverage Batch Loss: {:.6e}".format(
-                epoch, 100. * test_batch_count / len(test_loader),
-                test_batch_avg_loss / test_batch_avg_count
-            ))
-            test_batch_avg_loss = 0
-            test_batch_avg_count = 0
+            print("| {:3.4f}%".format(100. * batch_idx / len(test_loader)), end='\r')
 
-    if test_batch_avg_count > 0:
-        print("Epoch: {: <6}\tBatches: {: 7.2f}%\tAverage Batch Loss: {:.6e}".format(
-            epoch, 100. * test_batch_count / len(test_loader),
-            test_batch_avg_loss / test_batch_avg_count
-        ))
+    print("| {:3.4f}%".format(100. * batch_idx / len(test_loader)))
 
-    print('\nTest set accuracy: {}/{} ({:.4f}%)'.format(
-        correct, len(test_loader) * args.batch_size,
-        100. * (float(correct) / (len(test_loader) * args.batch_size))
+    print('\nTest accuracy: {}/{} ({:.4f}%)'.format(
+        correct, len(test_loader.dataset),
+        (100. * correct) / len(test_loader.dataset)
     ))
 
     return correct
 
 
 if __name__ == '__main__':
-    print("Training batches:", len(train_loader))
-    print("Validation batches:", len(valid_loader))
-    print("Test batches:", len(test_loader), end='\n\n')
-    save_model_path = "{}-{}.mkl".format("model", int(time.time()))
-
     if args.check is not None:
         print("Loading module", args.check)
         model.load_state_dict(torch.load(args.check))
@@ -292,44 +249,41 @@ if __name__ == '__main__':
 
         plt.show()
     else:
-        max_valid_correct = 0
+        min_val_loss = np.inf
         test_correct = 0
+        vt = 0.0
+        beta = 0.9
 
-        scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=5, verbose=True, eps=1e-7)
+        scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.75, patience=10, verbose=True, eps=1e-7)
 
         for epoch in range(1, args.epochs + 1):
             time_start = time.clock()
 
-            train_loss = train(epoch)
+            train_loss, val_loss = train(epoch)
             scheduler.step(train_loss, epoch=epoch)
-
-            print("\n{:-<72}".format(""))
-            print("Validation:\n")
-            correct, val_loss = validate(epoch)
-            if correct > max_valid_correct:
-                max_valid_correct = correct
-                print("\n{:-<72}".format(""))
-                print("Test:\n")
+            if val_loss < min_val_loss:
+                min_val_loss = val_loss
                 test_correct = test(epoch)
                 if args.save:
                     torch.save(model.state_dict(), args.save_path)
             else:
-                print('\nBest Validation set accuracy: {}/{} ({:.4f}%)'.format(
-                    max_valid_correct, len(valid_loader) * args.batch_size,
-                    100. * (float(max_valid_correct) / (len(valid_loader) * args.batch_size))
-                ))
+                print("Best validation loss was:", min_val_loss)
 
             time_complete = time.clock() - time_start
             print("\nTime to complete epoch {} == {} sec(s)".format(
                 epoch, time_complete
             ))
+
+            # Calculated moving average for time to complete epoch
+            vt = (beta * vt) + ((1 - beta) * time_complete)
+            average_epoch_time = vt / (1 - pow(beta, epoch))
             print("Estimated time left == {}".format(
-                str(datetime.timedelta(seconds=time_complete * (args.epochs - epoch)))
+                str(datetime.timedelta(seconds=average_epoch_time * (args.epochs - epoch)))
             ))
 
             print("{:=<72}\n".format(""))
 
-        print('\nFinal Test set accuracy: {}/{} ({:.4f}%)'.format(
+        print('\nFinal Test accuracy: {}/{} ({:.4f}%)'.format(
             test_correct, len(test_loader) * args.batch_size,
             100. * (float(test_correct) / (len(test_loader) * args.batch_size))
         ))

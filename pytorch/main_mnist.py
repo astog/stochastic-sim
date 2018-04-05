@@ -30,12 +30,11 @@ import matplotlib.pyplot as plt
 sys.stdout = os.fdopen(sys.stdout.fileno(), 'w', 0)
 
 # Training settings
-parser = argparse.ArgumentParser(description='Stochastic BNN for MNIST MLP')
+parser = argparse.ArgumentParser(description='Main script for MNIST dataset')
 parser.add_argument('--seed', type=int, default=1234)
 parser.add_argument('--lr', type=float, default=0.001)
 parser.add_argument('--epochs', type=int, default=100)
 parser.add_argument('--no-shuffle', action='store_true', default=False)
-parser.add_argument('--valid-pcent', type=float, default=0.2)
 parser.add_argument('--batch-size', type=int, default=128)
 parser.add_argument('--hunits', type=int, default=32)
 parser.add_argument('--include-bias', action='store_true', default=False)

@@ -1,4 +1,1 @@
-python main_cifar10.py --dpath ~/udata/pytorch_data/ --npasses 8 --weight-decay 1e-7 --epochs 250 --save-path /home/gaurav/udata/logs/wave/cifar10/lenet/1-wd1.mkl | tee /home/gaurav/udata/logs/wave/cifar10/lenet/1-wd1.log
-python main_cifar10.py --dpath ~/udata/pytorch_data/ --npasses 8 --weight-decay 5e-7 --epochs 250 --save-path /home/gaurav/udata/logs/wave/cifar10/lenet/1-wd2.mkl | tee /home/gaurav/udata/logs/wave/cifar10/lenet/1-wd2.log
-python main_cifar10.py --dpath ~/udata/pytorch_data/ --npasses 8 --weight-decay 1e-6 --epochs 250 --save-path /home/gaurav/udata/logs/wave/cifar10/lenet/1-wd3.mkl | tee /home/gaurav/udata/logs/wave/cifar10/lenet/1-wd3.log
-python main_cifar10.py --dpath ~/udata/pytorch_data/ --npasses 8 --weight-decay 5e-6 --epochs 250 --save-path /home/gaurav/udata/logs/wave/cifar10/lenet/1-wd4.mkl | tee /home/gaurav/udata/logs/wave/cifar10/lenet/1-wd4.log
+python main_cifar10.py --dpath ~/udata/pytorch_data/ --npasses 8 --weight-decay 5e-6 --epochs 250 --save-path /home/gaurav/udata/logs/wave/cifar10/lenet/1-wd6.mkl | tee /home/gaurav/udata/logs/wave/cifar10/lenet/1-wd6.log

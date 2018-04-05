@@ -6,6 +6,10 @@ class KFoldDataset():
         split_length = len(dataset) / kfolds
         splits = [split_length] * kfolds
 
+        # Add any remainder samples to the last subset
+        remainder_samples = len(dataset) - sum(splits)
+        splits[-1] += remainder_samples
+
         self.data_subsets = torch_data.random_split(dataset, splits)
         self.kfolds = kfolds
 
