@@ -13,7 +13,7 @@ def binarize_(tensor, deterministic=False):
     else:
         mask = sb.binarize(tensor)
         tensor[mask] = -1
-        tensor[1-mask] = 1
+        tensor[1 - mask] = 1
 
 
 def he_init(tensor, dist='uniform'):
@@ -24,10 +24,10 @@ def he_init(tensor, dist='uniform'):
         #
         tensor.uniform_(-1.0, 1.0)
         # Scale so that the final variace of this layer is 3/input_features
-        tensor.mul_(np.sqrt(3.0/n) / tensor.std())
+        tensor.mul_(np.sqrt(3.0 / n) / tensor.std())
     else:
-        tensor.normal_(0.0, np.sqrt(3.0/n))
-    print("Init variance : {:.7f} == {:.7f}".format(tensor.var(), 3.0/n), end='\n\n')
+        tensor.normal_(0.0, np.sqrt(3.0 / n))
+    # print("Init variance : {:.7f} == {:.7f}".format(tensor.var(), 3.0 / n), end='\n\n')
 
 
 class BinarizedLinear(nn.Linear):
@@ -37,7 +37,7 @@ class BinarizedLinear(nn.Linear):
         super(BinarizedLinear, self).__init__(input_features, output_features, bias)
 
         # nn.init.xavier_uniform(self.weight.data, gain=nn.init.calculate_gain('tanh'))
-        he_init(self.weight.data, dist='uniform')
+        he_init(self.weight.data, dist='normal')
 
         self.real_weight = self.weight.data.clone()
 
@@ -61,7 +61,7 @@ class BinarizedConv2d(nn.Conv2d):
         self.deterministic = deterministic
 
         # nn.init.xavier_normal(self.weight.data, gain=nn.init.calculate_gain('tanh'))
-        he_init(self.weight.data, dist='uniform')
+        he_init(self.weight.data, dist='normal')
 
         self.real_weight = self.weight.data.clone()
 
@@ -125,3 +125,12 @@ class StochasticTanH(nn.Module):
     def forward(self, input):
         # TODO: Implement stochastic version for tanh, currently a mathematical tanh is very close approximation to it
         return F.tanh(input)
+
+
+class ScaleLayer(nn.Module):
+    def __init__(self, gamma=1e-3):
+        super(ScaleLayer, self).__init__()
+        self.gamma = nn.Parameter(torch.FloatTensor([gamma]))
+
+    def forward(self, input):
+        return input * self.gamma

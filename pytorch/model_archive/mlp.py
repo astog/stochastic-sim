@@ -63,13 +63,3 @@ class Net(nn.Module):
         loss.backward()
 
         optimizer.step()
-
-        # Clamp weights between [-1, 1]
-        self.back_clamp()
-
-    def back_clamp(self):
-        for module in self.modules():
-            if isinstance(module, nn.Linear):
-                module.weight.data.clamp_(-1.0, 1.0)
-                # weight --> copies into --> real_weight before forward pass
-                # module.real_weight.clamp_(-1.0, 1.0)

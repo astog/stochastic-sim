@@ -2,7 +2,8 @@ from __future__ import print_function
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from ..modules import StochasticTanH, BinarizedConv2d, BinarizedLinear
+import numpy as np
+from ..modules import StochasticTanH, BinarizedConv2d, BinarizedLinear, ScaleLayer
 
 
 class Net(nn.Module):
@@ -10,24 +11,30 @@ class Net(nn.Module):
         super(Net, self).__init__()
         self.npasses = npasses
 
-        self.conv1 = BinarizedConv2d(channels_in, 6, 5, deterministic=False, bias=bias)
+        # self.conv1 = BinarizedConv2d(channels_in, 6, 5, deterministic=False, bias=bias)
+        self.conv1 = nn.Conv2d(channels_in, 6, 5, bias=bias)
         self.bn1 = nn.BatchNorm2d(6)
+        self.actv1 = nn.Hardtanh()
 
         self.conv2 = BinarizedConv2d(6, 16, 5, deterministic=False, bias=bias)
         self.bn2 = nn.BatchNorm2d(16)
+        self.actv2 = nn.Hardtanh()
 
         self.features_in = ((7 + channels_in) * (7 + channels_in) * 16) / (2 ** 2)
 
         self.fc1 = BinarizedLinear(self.features_in, 120, deterministic=False, bias=bias)
         self.bn3 = nn.BatchNorm1d(120)
+        self.actv3 = nn.Hardtanh()
 
         self.fc2 = BinarizedLinear(120, 84, deterministic=False, bias=bias)
         self.bn4 = nn.BatchNorm1d(84)
+        self.actv4 = nn.Hardtanh()
 
         self.fc3 = BinarizedLinear(84, output_classes, deterministic=False, bias=bias)
-        self.bn5 = nn.BatchNorm1d(output_classes)
+        # self.bn5 = nn.BatchNorm1d(output_classes)
+        self.sl1 = ScaleLayer(gamma=1e-3)
 
-        self.tanh = StochasticTanH()
+        # self.tanh = StochasticTanH()
 
     def do_npass(self, x, *layers):
         # Save weights before binarization
@@ -62,25 +69,30 @@ class Net(nn.Module):
     def forward(self, x):
         x = self.do_npass(x, self.conv1)
         x = F.max_pool2d(x, 2)
+        x = F.relu(x)
         x = self.bn1(x)
-        x = self.tanh(x)
+        x = self.actv1(x)
 
         x = self.do_npass(x, self.conv2)
         x = F.max_pool2d(x, 2)
+        x = F.relu(x)
         x = self.bn2(x)
-        x = self.tanh(x)
+        x = self.actv2(x)
 
         x = x.view(-1, self.features_in)
         x = self.do_npass(x, self.fc1)
+        x = F.relu(x)
         x = self.bn3(x)
-        x = self.tanh(x)
+        x = self.actv3(x)
 
         x = self.do_npass(x, self.fc2)
+        x = F.relu(x)
         x = self.bn4(x)
-        x = self.tanh(x)
+        x = self.actv4(x)
 
         x = self.do_npass(x, self.fc3)
-        x = self.bn5(x)
+        # x = self.bn5(x)
+        x = self.sl1(x)
         return x
 
     def backward(self, loss, optimizer):
@@ -105,3 +117,32 @@ class Net(nn.Module):
         for module in self.modules():
             if isinstance(module, BinarizedLinear) or isinstance(module, BinarizedConv2d):
                 module.weight.data.clamp_(-1, 1)
+
+    def get_regul_loss(self, mode='pow4'):
+        total_loss = None
+        for module in self.modules():
+            if isinstance(module, BinarizedLinear) or isinstance(module, BinarizedConv2d):
+                # Do bipolar regularization from Tang et al.
+                if mode == 'tang':
+                    loss = (1.0 - torch.pow(module.weight, 2)).sum()
+                # Do bipolar regularization similar to l1, but shifted and flipped
+                elif mode == 'bp1':
+                    loss = torch.abs(torch.abs(module.weight) - 1).sum()
+                # Do bipolar regularization similar to bp1, but smoothed at +1/-1
+                elif mode == 'bp2':
+                    loss = torch.pow(torch.abs(module.weight) - 1, 2).sum()
+                # Do bipolar regularization using 4-degree function
+                elif mode == 'pow4':
+                    loss = (torch.pow(module.weight - 1, 2) * torch.pow(module.weight + 1, 2)).sum()
+                else:
+                    raise(RuntimeError, "Invalid regulation mode given to model")
+
+                if total_loss is None:
+                    total_loss = loss
+                else:
+                    total_loss += loss
+
+        if total_loss is None:
+            total_loss = 0.0
+
+        return total_loss

@@ -5,12 +5,13 @@ import torch.nn as nn
 import torch.optim as optim
 from torchvision import datasets, transforms
 from torch.autograd import Variable
-from Adam import Adam
 from dataloader import KFoldDataset
 
 # Models
 # from model_archive.mlp import Net
-from model_archive.lenet import Net
+# from model_archive.lenet import Net
+# from model_archive.alexnet import Net
+from model_archive.vgg import Net as model
 # from sbnn_models.ripple.mlp import Net
 # from sbnn_models.ripple.lenet import Net
 # from sbnn_models.wave.mlp import Net
@@ -24,6 +25,9 @@ from scipy.stats import norm
 import matplotlib.mlab as mlab
 import matplotlib.pyplot as plt
 
+means = (0.4914, 0.4822, 0.4465)
+stds = (0.2023, 0.1994, 0.2010)
+
 # Training settings
 parser = argparse.ArgumentParser(description='Main script for CIFAR10 dataset')
 parser.add_argument('--seed', type=int, default=1234)
@@ -35,9 +39,9 @@ parser.add_argument('--hunits', type=int, default=32)
 parser.add_argument('--include-bias', action='store_true', default=False)
 parser.add_argument('--npasses', type=int, default=8)
 parser.add_argument('--kfolds', type=int, default=5)
-parser.add_argument('--dp-dense', type=float, default=0.1)
+parser.add_argument('--dp-dense', type=float, default=0.5)
 parser.add_argument('--dp-conv', type=float, default=0.0)
-parser.add_argument('--weight-decay', type=float, default=0.0)
+parser.add_argument('--wd', type=float, default=0.0)
 parser.add_argument('--dpath', type=str, default="./pytorch_data/")
 parser.add_argument('--download', action='store_true', default=False)
 parser.add_argument('--no-cuda', action='store_true', default=False)
@@ -70,12 +74,12 @@ transform_train = transforms.Compose([
     transforms.RandomCrop(32, padding=4),
     transforms.RandomHorizontalFlip(),
     transforms.ToTensor(),
-    transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
+    transforms.Normalize(means, stds),
 ])
 
 transform_test = transforms.Compose([
     transforms.ToTensor(),
-    transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
+    transforms.Normalize(means, stds),
 ])
 
 # Cuda dataset arguments
@@ -87,20 +91,21 @@ test_loader = torch.utils.data.DataLoader(test_dataset, batch_size=args.batch_si
 
 # model = Net(28 * 28, 10, args.hunits, args.npasses, bias=False, dp_dense=args.dp_dense)
 # model = Net(3, 10, args.npasses, bias=args.include_bias)
-model = Net(3, 10, bias=args.include_bias)
+# model = Net(3, 10, bias=args.include_bias)
 
 if args.cuda:
     torch.cuda.set_device(0)
     model.cuda()
 
 criterion = nn.CrossEntropyLoss()
-# optimizer = optim.SGD(model.parameters(), momentum=0.9, lr=args.lr, nesterov=True, weight_decay=args.weight_decay)
-optimizer = Adam(
+# optimizer = optim.SGD(model.parameters(), momentum=0.9, lr=args.lr, nesterov=True, weight_decay=args.wd)
+optimizer = optim.Adam(
     model.parameters(),
     lr=args.lr,
     amsgrad=False,
-    weight_decay=args.weight_decay
+    weight_decay=args.wd
 )
+scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=8, cooldown=10, verbose=True, min_lr=5e-7)
 
 
 def train(epoch):
@@ -123,7 +128,9 @@ def train(epoch):
         val_loader = torch.utils.data.DataLoader(val_set, batch_size=args.batch_size, shuffle=args.shuffle, **kwargs)
 
         print("| Training")
-        total_train_loss += do_train(train_loader, epoch, ifold)
+        train_loss = do_train(train_loader, epoch, ifold)
+        total_train_loss += train_loss
+
         print("| Validating")
         val_loss, val_correct = do_val(val_loader, epoch, ifold)
         total_val_loss += val_loss
@@ -134,7 +141,7 @@ def train(epoch):
         (100. * total_val_correct) / len(train_dataset)
     ))
 
-    return total_train_loss / args.kfolds, total_val_loss / args.kfolds
+    return total_train_loss / args.kfolds, total_val_loss / args.kfolds, float(total_val_correct) / len(train_dataset)
 
 
 def do_train(dataloader, epoch, ifold):
@@ -152,6 +159,8 @@ def do_train(dataloader, epoch, ifold):
         output = model(data)
 
         loss = criterion(output, target)
+        # loss = criterion(output, target) + (args.wd * model.get_regul_loss(mode='pow4'))
+
         total_loss += loss.data[0]
 
         model.backward(loss, optimizer)
@@ -224,68 +233,39 @@ def test(epoch):
 
 
 if __name__ == '__main__':
-    if args.check is not None:
-        print("Loading module", args.check)
-        model.load_state_dict(torch.load(args.check))
+    min_val_loss = np.inf
+    test_correct = 0
+    vt = 0.0
+    beta = 0.9
 
-        test_accuracy = np.zeros(args.test_count)
-        for itest in xrange(args.test_count):
-            test_accuracy[itest] = (float(test(itest)) / (len(test_loader) * args.batch_size))
+    for epoch in range(1, args.epochs + 1):
+        time_start = datetime.datetime.now()
 
-        # best fit of data
-        (mu, sigma) = norm.fit(test_accuracy)
+        train_loss, val_loss, val_correct = train(epoch)
+        if val_loss < min_val_loss:
+            min_val_loss = val_loss
+            test_correct = test(epoch)
+            if args.save:
+                torch.save(model.state_dict(), args.save_path)
+        else:
+            print("Best validation loss was {:.4f}%, got {:.4f}%".format(min_val_loss, val_loss))
 
-        # the histogram of the data
-        n, bins, patches = plt.hist(test_accuracy, 60, normed=1, facecolor='green', alpha=0.75)
-
-        # add a 'best fit' line
-        y = mlab.normpdf(bins, mu, sigma)
-        l = plt.plot(bins, y, 'r--', linewidth=2)
-
-        # plot
-        plt.xlabel('Test accuracy')
-        plt.ylabel('Probability')
-        plt.title(r'$\mathrm{Histogram\ of\ Test accuracy:}\ \mu=%.3f,\ \sigma=%.3f$' % (mu, sigma))
-        plt.grid(True)
-
-        plt.show()
-    else:
-        min_val_loss = np.inf
-        test_correct = 0
-        vt = 0.0
-        beta = 0.9
-
-        scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.75, patience=10, verbose=True, eps=1e-7)
-
-        for epoch in range(1, args.epochs + 1):
-            time_start = datetime.datetime.now()
-
-            train_loss, val_loss = train(epoch)
-            scheduler.step(train_loss, epoch=epoch)
-            if val_loss < min_val_loss:
-                min_val_loss = val_loss
-                test_correct = test(epoch)
-                if args.save:
-                    torch.save(model.state_dict(), args.save_path)
-            else:
-                print("Best validation loss was {:1.5e}, got {:1.5e}", min_val_loss, val_loss)
-
-            time_complete = datetime.datetime.now() - time_start
-            time_complete = time_complete.total_seconds()
-            print("\nTime to complete epoch {} == {} sec(s)".format(
-                epoch, time_complete
-            ))
-
-            # Calculated moving average for time to complete epoch
-            vt = (beta * vt) + ((1 - beta) * time_complete)
-            average_epoch_time = vt / (1 - pow(beta, epoch))
-            print("Estimated time left == {}".format(
-                str(datetime.timedelta(seconds=average_epoch_time * (args.epochs - epoch)))
-            ))
-
-            print("{:=<72}\n".format(""))
-
-        print('\nFinal Test accuracy: {}/{} ({:.4f}%)'.format(
-            test_correct, len(test_loader) * args.batch_size,
-            100. * (float(test_correct) / (len(test_loader) * args.batch_size))
+        time_complete = datetime.datetime.now() - time_start
+        time_complete = time_complete.total_seconds()
+        print("\nTime to complete epoch {} == {} sec(s)".format(
+            epoch, time_complete
         ))
+
+        # Calculated moving average for time to complete epoch
+        vt = (beta * vt) + ((1 - beta) * time_complete)
+        average_epoch_time = vt / (1 - pow(beta, epoch))
+        print("Estimated time left == {}".format(
+            str(datetime.timedelta(seconds=average_epoch_time * (args.epochs - epoch)))
+        ))
+
+        print("{:=<72}\n".format(""))
+
+    print('\nFinal Test accuracy: {}/{} ({:.4f}%)'.format(
+        test_correct, len(test_loader.dataset),
+        100. * (float(test_correct) / len(test_loader.dataset))
+    ))

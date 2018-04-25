@@ -7,7 +7,6 @@ import torch.nn as nn
 import torch.optim as optim
 from torchvision import datasets, transforms
 from torch.autograd import Variable
-from Adam import Adam
 from dataloader import KFoldDataset
 
 # Models
@@ -92,8 +91,12 @@ if args.cuda:
 
 
 criterion = nn.CrossEntropyLoss()
-# optimizer = Adam(model.parameters(), weight_decay=args.weight_decay, lr=args.lr, amsgrad=True)
-optimizer = optim.SGD(model.parameters(), momentum=0.9, lr=args.lr, nesterov=True, weight_decay=args.weight_decay)
+optimizer = optim.Adam(
+    model.parameters(),
+    weight_decay=args.weight_decay,
+    lr=args.lr)
+# optimizer = optim.SGD(model.parameters(), momentum=0.9, lr=args.lr, nesterov=True, weight_decay=args.weight_decay)
+scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=8, verbose=True, eps=1e-7)
 
 
 def train(epoch):
@@ -116,7 +119,10 @@ def train(epoch):
         val_loader = torch.utils.data.DataLoader(val_set, batch_size=args.batch_size, shuffle=args.shuffle, **kwargs)
 
         print("| Training")
-        total_train_loss += do_train(train_loader, epoch, ifold)
+        train_loss = do_train(train_loader, epoch, ifold)
+        total_train_loss += train_loss
+        scheduler.step(train_loss)
+
         print("| Validating")
         val_loss, val_correct = do_val(val_loader, epoch, ifold)
         total_val_loss += val_loss
@@ -217,68 +223,39 @@ def test(epoch):
 
 
 if __name__ == '__main__':
-    if args.check is not None:
-        print("Loading module", args.check)
-        model.load_state_dict(torch.load(args.check))
+    min_val_loss = np.inf
+    test_correct = 0
+    vt = 0.0
+    beta = 0.9
 
-        test_accuracy = np.zeros(args.test_count)
-        for itest in xrange(args.test_count):
-            test_accuracy[itest] = (float(test(itest)) / (len(test_loader) * args.batch_size))
+    for epoch in range(1, args.epochs + 1):
+        time_start = datetime.datetime.now()
 
-        # best fit of data
-        (mu, sigma) = norm.fit(test_accuracy)
+        train_loss, val_loss = train(epoch)
+        if val_loss < min_val_loss:
+            min_val_loss = val_loss
+            test_correct = test(epoch)
+            if args.save:
+                torch.save(model.state_dict(), args.save_path)
+        else:
+            print("Best validation loss was {:1.5e}, got {:1.5e}".format(min_val_loss, val_loss))
 
-        # the histogram of the data
-        n, bins, patches = plt.hist(test_accuracy, 60, normed=1, facecolor='green', alpha=0.75)
-
-        # add a 'best fit' line
-        y = mlab.normpdf(bins, mu, sigma)
-        l = plt.plot(bins, y, 'r--', linewidth=2)
-
-        # plot
-        plt.xlabel('Test accuracy')
-        plt.ylabel('Probability')
-        plt.title(r'$\mathrm{Histogram\ of\ Test accuracy:}\ \mu=%.3f,\ \sigma=%.3f$' % (mu, sigma))
-        plt.grid(True)
-
-        plt.show()
-    else:
-        min_val_loss = np.inf
-        test_correct = 0
-        vt = 0.0
-        beta = 0.9
-
-        scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.75, patience=10, verbose=True, eps=1e-7)
-
-        for epoch in range(1, args.epochs + 1):
-            time_start = datetime.datetime.now()
-
-            train_loss, val_loss = train(epoch)
-            scheduler.step(train_loss, epoch=epoch)
-            if val_loss < min_val_loss:
-                min_val_loss = val_loss
-                test_correct = test(epoch)
-                if args.save:
-                    torch.save(model.state_dict(), args.save_path)
-            else:
-                print("Best validation loss was {:1.5e}, got {:1.5e}", min_val_loss, val_loss)
-
-            time_complete = datetime.datetime.now() - time_start
-            time_complete = time_complete.total_seconds()
-            print("\nTime to complete epoch {} == {} sec(s)".format(
-                epoch, time_complete
-            ))
-
-            # Calculated moving average for time to complete epoch
-            vt = (beta * vt) + ((1 - beta) * time_complete)
-            average_epoch_time = vt / (1 - pow(beta, epoch))
-            print("Estimated time left == {}".format(
-                str(datetime.timedelta(seconds=average_epoch_time * (args.epochs - epoch)))
-            ))
-
-            print("{:=<72}\n".format(""))
-
-        print('\nFinal Test accuracy: {}/{} ({:.4f}%)'.format(
-            test_correct, len(test_loader) * args.batch_size,
-            100. * (float(test_correct) / (len(test_loader) * args.batch_size))
+        time_complete = datetime.datetime.now() - time_start
+        time_complete = time_complete.total_seconds()
+        print("\nTime to complete epoch {} == {} sec(s)".format(
+            epoch, time_complete
         ))
+
+        # Calculated moving average for time to complete epoch
+        vt = (beta * vt) + ((1 - beta) * time_complete)
+        average_epoch_time = vt / (1 - pow(beta, epoch))
+        print("Estimated time left == {}".format(
+            str(datetime.timedelta(seconds=average_epoch_time * (args.epochs - epoch)))
+        ))
+
+        print("{:=<72}\n".format(""))
+
+    print('\nFinal Test accuracy: {}/{} ({:.4f}%)'.format(
+        test_correct, len(test_loader) * args.batch_size,
+        100. * (float(test_correct) / len(test_loader.dataset))
+    ))
