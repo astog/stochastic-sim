@@ -27,7 +27,7 @@ class Net(nn.Module):
 
         self.bhtanh = nn.Tanh()
 
-    def fpass(self, x):
+    def forward(self, x):
         # Input layer
         x = x.view(-1, self.input_features)
 
@@ -53,9 +53,6 @@ class Net(nn.Module):
         x = self.dense4(x)
         x = self.bn4(x)
         return x
-
-    def forward(self, x):
-        return self.fpass(x)
 
     def backward(self, loss, optimizer):
         # Zero grads, before calculation
