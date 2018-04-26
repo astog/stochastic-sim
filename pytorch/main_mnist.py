@@ -11,9 +11,9 @@ from dataloader import KFoldDataset
 
 # Models
 # from model_archive.lenet import Net
-from model_archive.mlp import Net
+# from model_archive.mlp import Net
 # from sbnn_models.ripple.mlp import Net
-# from sbnn_models.ripple.lenet import Net
+from sbnn_models.ripple.lenet import Net
 # from sbnn_models.wave.mlp import Net
 # from sbnn_models.wave.lenet import Net
 
@@ -38,10 +38,11 @@ parser.add_argument('--batch-size', type=int, default=128)
 parser.add_argument('--hunits', type=int, default=32)
 parser.add_argument('--include-bias', action='store_true', default=False)
 parser.add_argument('--npasses', type=int, default=8)
+parser.add_argument('--infl-ratio', type=float, default=1.0)
 parser.add_argument('--kfolds', type=int, default=3)
 parser.add_argument('--dp-dense', type=float, default=0.1)
 parser.add_argument('--dp-conv', type=float, default=0.0)
-parser.add_argument('--weight-decay', type=float, default=0.0)
+parser.add_argument('--wd', type=float, default=0.0)
 parser.add_argument('--dpath', type=str, default="./pytorch_data/")
 parser.add_argument('--download', action='store_true', default=False)
 parser.add_argument('--no-cuda', action='store_true', default=False)
@@ -82,8 +83,9 @@ test_dataset = datasets.MNIST(args.dpath, train=False, download=args.download, t
 test_loader = torch.utils.data.DataLoader(test_dataset, batch_size=args.batch_size, shuffle=args.shuffle, **kwargs)
 
 # model = Net(28 * 28, 10, args.hunits, args.npasses, bias=args.include_bias, dp_dense=args.dp_dense)
-model = Net(28 * 28, 10, args.hunits, bias=args.include_bias, dp_dense=args.dp_dense)
-# model = Net(1, 10, args.npasses, bias=args.include_bias)
+# model = Net(28 * 28, 10, args.hunits, bias=args.include_bias, dp_dense=args.dp_dense)
+model = Net(1, 10, args.npasses, args.infl_ratio, bias=args.include_bias)
+# model = Net(1, 10, bias=args.include_bias)
 
 if args.cuda:
     torch.cuda.set_device(0)
@@ -93,9 +95,9 @@ if args.cuda:
 criterion = nn.CrossEntropyLoss()
 optimizer = optim.Adam(
     model.parameters(),
-    weight_decay=args.weight_decay,
+    # weight_decay=args.wd,
     lr=args.lr)
-# optimizer = optim.SGD(model.parameters(), momentum=0.9, lr=args.lr, nesterov=True, weight_decay=args.weight_decay)
+# optimizer = optim.SGD(model.parameters(), momentum=0.9, lr=args.lr, nesterov=True, weight_decay=args.wd)
 scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=8, verbose=True, eps=1e-7)
 
 
@@ -105,7 +107,7 @@ def train(epoch):
 
     total_train_loss = 0.0
     total_val_loss = 0.0
-    total_val_correct = 0
+    total_val_correct = 0.0
 
     # Go through all folds
     for ifold in xrange(args.kfolds):
@@ -130,7 +132,7 @@ def train(epoch):
 
     print('Validation accuracy: {}/{} ({:.4f}%)\n'.format(
         total_val_correct, len(train_dataset),
-        (100. * total_val_correct) / len(train_dataset)
+        100. * (float(total_val_correct) / len(train_dataset))
     ))
 
     return total_train_loss / args.kfolds, total_val_loss / args.kfolds
@@ -141,17 +143,19 @@ def do_train(dataloader, epoch, ifold):
     model.train()
 
     # Logging variables
-    total_loss = 0
+    total_loss = 0.0
 
     for batch_idx, (data, target) in enumerate(dataloader, 1):
         if args.cuda:
             data, target = data.cuda(), target.cuda()
-        data, target = Variable(data), Variable(target)
+        data, target = Variable(data, requires_grad=True), Variable(target, requires_grad=False)
 
         output = model(data)
 
-        loss = criterion(output, target)
-        total_loss += loss.data[0]
+        # loss = criterion(output, target)
+        loss = criterion(output, target) + (args.wd * model.get_regul_loss(mode='pow4'))
+
+        total_loss += loss.data.item()
 
         model.backward(loss, optimizer)
 
@@ -167,17 +171,17 @@ def do_val(dataloader, epoch, ifold):
     model.train()
 
     # Logging variabls
-    total_loss = 0
-    correct = 0
+    total_loss = 0.0
+    correct = 0.0
 
     for batch_idx, (data, target) in enumerate(dataloader, 1):
         if args.cuda:
             data, target = data.cuda(), target.cuda()
-        data, target = Variable(data, volatile=True), Variable(target)
+        data, target = Variable(data, requires_grad=False), Variable(target, requires_grad=False)
 
         output = model(data)
 
-        loss = criterion(output, target).data[0]  # sum up batch loss
+        loss = criterion(output, target).data.item()  # sum up batch loss
         total_loss += loss
 
         pred = output.data.max(1, keepdim=True)[1]  # get the index of the max log-probability
@@ -196,13 +200,13 @@ def test(epoch):
     model.eval()
 
     # Logging variables
-    correct = 0
+    correct = 0.0
 
     print("Testing")
     for batch_idx, (data, target) in enumerate(test_loader, 1):
         if args.cuda:
             data, target = data.cuda(), target.cuda()
-        data = Variable(data, volatile=True)
+        data = Variable(data, requires_grad=False)
 
         output = model(data)
 
@@ -216,7 +220,7 @@ def test(epoch):
 
     print('\nTest accuracy: {}/{} ({:.4f}%)'.format(
         correct, len(test_loader.dataset),
-        (100. * correct) / len(test_loader.dataset)
+        100. * (float(correct) / len(test_loader.dataset))
     ))
 
     return correct
@@ -224,7 +228,7 @@ def test(epoch):
 
 if __name__ == '__main__':
     min_val_loss = np.inf
-    test_correct = 0
+    test_correct = 0.0
     vt = 0.0
     beta = 0.9
 
@@ -256,6 +260,6 @@ if __name__ == '__main__':
         print("{:=<72}\n".format(""))
 
     print('\nFinal Test accuracy: {}/{} ({:.4f}%)'.format(
-        test_correct, len(test_loader) * args.batch_size,
+        test_correct, len(test_loader.dataset),
         100. * (float(test_correct) / len(test_loader.dataset))
     ))

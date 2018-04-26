@@ -2,67 +2,69 @@ from __future__ import print_function
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import numpy as np
 from ..modules import BinarizedHardTanH, BinarizedConv2d, BinarizedLinear, ScaleLayer
 
-using_bnn = False
+using_bnn = True
 if using_bnn:
     print("Using BNN")
 
 
+lenet_model = [6, 16, 120, 84]
+
+
 class Net(nn.Module):
-    def __init__(self, channels_in, output_classes, npasses, bias=False):
+    def __init__(self, channels_in, output_classes, npasses, infl_ratio, bias=False):
         super(Net, self).__init__()
         self.npasses = npasses
 
-        # self.conv1 = BinarizedConv2d(channels_in, 6, 5, deterministic=using_bnn, bias=bias)
-        self.conv1 = nn.Conv2d(channels_in, 6, 5, bias=bias)
-        self.bn1 = nn.BatchNorm2d(6)
+        for i in xrange(len(lenet_model)):
+            lenet_model[i] = int(round(lenet_model[i] * infl_ratio))
 
-        self.conv2 = BinarizedConv2d(6, 16, 5, deterministic=using_bnn, bias=bias)
-        self.actv1 = nn.PReLU()
-        self.bn2 = nn.BatchNorm2d(16)
+        print("Lenet config\n", lenet_model, end='\n\n')
 
-        self.features_in = ((7 + channels_in) * (7 + channels_in) * 16) / (2 ** 2)
+        self.conv1 = nn.Conv2d(channels_in, lenet_model[0], 5, bias=bias)
+        self.bn1 = nn.BatchNorm2d(lenet_model[0])
 
-        self.fc1 = BinarizedLinear(self.features_in, 120, deterministic=using_bnn, bias=bias)
-        self.bn3 = nn.BatchNorm1d(120)
+        self.conv2 = BinarizedConv2d(lenet_model[0], lenet_model[1], 5, deterministic=using_bnn, bias=bias)
+        self.bn2 = nn.BatchNorm2d(lenet_model[1])
 
-        self.fc2 = BinarizedLinear(120, 84, deterministic=using_bnn, bias=bias)
-        self.bn4 = nn.BatchNorm1d(84)
+        self.features_in = ((7 + channels_in) * (7 + channels_in) * lenet_model[1]) / (2 ** 2)
 
-        self.fc3 = BinarizedLinear(84, output_classes, deterministic=using_bnn, bias=bias)
-        self.sl1 = ScaleLayer(gamma=1e-3)
-        # self.bn5 = nn.BatchNorm1d(output_classes)
+        self.fc3 = BinarizedLinear(self.features_in, lenet_model[2], deterministic=using_bnn, bias=bias)
+        self.bn3 = nn.BatchNorm1d(lenet_model[2])
+
+        self.fc4 = BinarizedLinear(lenet_model[2], lenet_model[3], deterministic=using_bnn, bias=bias)
+        self.bn4 = nn.BatchNorm1d(lenet_model[3])
+
+        self.fc5 = BinarizedLinear(lenet_model[3], output_classes, deterministic=using_bnn, bias=bias)
+        self.sl5 = ScaleLayer(gamma=1e-3)
 
         self.htanh = BinarizedHardTanH(deterministic=True)
 
     def fpass(self, x):
         x = self.conv1(x)
         x = F.max_pool2d(x, 2)
-        x = F.relu(x)
+        x = F.relu(x, inplace=True)
         x = self.bn1(x)
         x = self.htanh(x)
 
         x = self.conv2(x)
         x = F.max_pool2d(x, 2)
-        x = self.actv1(x)
-        x = self.sl1(x)
+        x = F.relu(x, inplace=True)
         x = self.bn2(x)
         x = self.htanh(x)
 
         x = x.view(-1, self.features_in)
-        x = self.fc1(x)
+        x = self.fc3(x)
         x = self.bn3(x)
         x = self.htanh(x)
 
-        x = self.fc2(x)
+        x = self.fc4(x)
         x = self.bn4(x)
         x = self.htanh(x)
 
-        x = self.fc3(x)
-        x = self.sl1(x)
-        # x = self.bn5(x)
+        x = self.fc5(x)
+        x = self.sl5(x)
         return x
 
     def forward(self, x):

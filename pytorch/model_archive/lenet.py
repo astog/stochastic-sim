@@ -11,7 +11,9 @@ class Net(nn.Module):
         self.conv1 = nn.Conv2d(channels_in, 6, 5)
         self.conv2 = nn.Conv2d(6, 16, 5)
 
-        self.fc1 = nn.Linear(16 * 5 * 5, 120, bias)
+        self.features_in = ((7 + channels_in) * (7 + channels_in) * 16) / (2 ** 2)
+
+        self.fc1 = nn.Linear(self.features_in, 120, bias)
         self.fc2 = nn.Linear(120, 84, bias)
         self.fc3 = nn.Linear(84, num_classes, bias)
 
@@ -24,7 +26,7 @@ class Net(nn.Module):
         x = F.max_pool2d(x, 2)
         x = F.relu(x)
 
-        x = x.view(x.size(0), -1)
+        x = x.view(-1, self.features_in)
         x = self.fc1(x)
         x = F.relu(x)
 

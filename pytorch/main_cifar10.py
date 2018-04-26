@@ -130,6 +130,7 @@ def train(epoch):
         print("| Training")
         train_loss = do_train(train_loader, epoch, ifold)
         total_train_loss += train_loss
+        scheduler.step(train_loss)
 
         print("| Validating")
         val_loss, val_correct = do_val(val_loader, epoch, ifold)
@@ -154,14 +155,14 @@ def do_train(dataloader, epoch, ifold):
     for batch_idx, (data, target) in enumerate(dataloader, 1):
         if args.cuda:
             data, target = data.cuda(), target.cuda()
-        data, target = Variable(data), Variable(target)
+        data, target = Variable(data, requires_grad=True), Variable(target, requires_grad=False)
 
         output = model(data)
 
         loss = criterion(output, target)
         # loss = criterion(output, target) + (args.wd * model.get_regul_loss(mode='pow4'))
 
-        total_loss += loss.data[0]
+        total_loss += loss.data.item()
 
         model.backward(loss, optimizer)
 
@@ -183,11 +184,11 @@ def do_val(dataloader, epoch, ifold):
     for batch_idx, (data, target) in enumerate(dataloader, 1):
         if args.cuda:
             data, target = data.cuda(), target.cuda()
-        data, target = Variable(data, volatile=True), Variable(target)
+        data, target = Variable(data, requires_grad=False), Variable(target, requires_grad=False)
 
         output = model(data)
 
-        loss = criterion(output, target).data[0]  # sum up batch loss
+        loss = criterion(output, target).data.item()  # sum up batch loss
         total_loss += loss
 
         pred = output.data.max(1, keepdim=True)[1]  # get the index of the max log-probability
@@ -212,7 +213,7 @@ def test(epoch):
     for batch_idx, (data, target) in enumerate(test_loader, 1):
         if args.cuda:
             data, target = data.cuda(), target.cuda()
-        data = Variable(data, volatile=True)
+        data = Variable(data, requires_grad=False)
 
         output = model(data)
 

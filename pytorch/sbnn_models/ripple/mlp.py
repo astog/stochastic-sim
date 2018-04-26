@@ -3,7 +3,7 @@ import torch
 import torch.nn as nn
 from ..modules import BinarizedLinear, BinarizedHardTanH
 
-using_bnn = False
+using_bnn = True
 if using_bnn:
     print("Ripple Network modified to be BNN\n")
 
@@ -84,9 +84,6 @@ class Net(nn.Module):
 
         optimizer.step()
 
-        # Clamp weights between [-1, 1]
-        self.back_clamp()
-
     def save_weights(self):
         for module in self.modules():
             if hasattr(module, 'save_param'):
@@ -97,9 +94,31 @@ class Net(nn.Module):
             if hasattr(module, 'restore_param'):
                 module.restore_param()
 
-    def back_clamp(self):
+    def get_regul_loss(self, mode='pow4'):
+        total_loss = None
         for module in self.modules():
             if isinstance(module, BinarizedLinear):
-                module.weight.data.clamp_(-1.0, 1.0)
-                # weight  --> copies into --> real_weight before forward pass
-                # module.real_weight.clamp_(-1.0, 1.0)
+                # Do bipolar regularization from Tang et al.
+                if mode == 'tang':
+                    loss = (1.0 - torch.pow(module.weight, 2)).sum()
+                # Do bipolar regularization similar to l1, but shifted and flipped
+                elif mode == 'bp1':
+                    loss = torch.abs(torch.abs(module.weight) - 1).sum()
+                # Do bipolar regularization similar to bp1, but smoothed at +1/-1
+                elif mode == 'bp2':
+                    loss = torch.pow(torch.abs(module.weight) - 1, 2).sum()
+                # Do bipolar regularization using 4-degree function
+                elif mode == 'pow4':
+                    loss = (torch.pow(module.weight - 1, 2) * torch.pow(module.weight + 1, 2)).sum()
+                else:
+                    raise(RuntimeError, "Invalid regulation mode given to model")
+
+                if total_loss is None:
+                    total_loss = loss
+                else:
+                    total_loss += loss
+
+        if total_loss is None:
+            total_loss = 0.0
+
+        return total_loss

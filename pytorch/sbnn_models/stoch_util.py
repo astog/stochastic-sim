@@ -3,9 +3,15 @@ import torch
 import numpy as np
 
 
+def inverted_round(tensor):
+    tensor[tensor > 0].ceil_()
+    tensor[tensor < 0].floor_()
+    return tensor
+
+
 def quantize(tensor, nbits=8):
     # one bit is needed for the sign
-    return tensor.mul_(2**(nbits - 1)).round_().div_(2**(nbits - 1))
+    return inverted_round(tensor.mul_(2**(nbits - 1))).div_(2**(nbits - 1))
 
 
 def binarize(float_tensor, bipolar=True):
